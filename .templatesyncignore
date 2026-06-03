@@ -1,0 +1,49 @@
+# .templatesyncignore — files an INSTANCE created from this template OWNS.
+#
+# Same syntax as .gitignore. template-sync (AndreasAugustin/actions-template-sync)
+# only ever brings over files that exist in this template, and it skips anything
+# matched here — so an instance lists the files it has tailored for its own
+# cluster and they are never clobbered by an upstream sync.
+#
+# Everything NOT listed here is TEMPLATE-OWNED shared plumbing and is kept current
+# in every instance by template-sync — change those upstream in
+# devantler-tech/platform-template, never by editing them in an instance. Notable
+# template-owned files: k8s/clusters/base/, k8s/bases/ (infrastructure), k8s/providers/,
+# .github/workflows/{cd,release,template-sync,validate-scaffold,bootstrap}.yaml,
+# CLAUDE.md, zizmor.yml.
+
+# --- Identity & docs (instance-specific) ---
+AGENTS.md
+README.md
+LICENSE
+SECURITY.md
+.claude/skills/maintain/SKILL.md
+
+# --- CI / release / dependency config the instance tailors ---
+.github/workflows/ci.yaml
+.github/dependabot.yml
+.releaserc
+.gitignore
+.cspell.json
+.policyignore
+
+# --- KSail cluster config (per-cluster: names, providers, sizes, versions) ---
+ksail.yaml
+ksail.prod.yaml
+
+# --- Secrets / encryption (instance-specific Age recipients & ciphertext) ---
+.sops.yaml
+**/*.enc.yaml
+
+# --- Talos machine config & local host entries (per-cluster) ---
+talos/
+talos-local/
+hosts
+
+# --- Bootstrap substitution variables (per-cluster values, ConfigMap + secrets) ---
+k8s/clusters/local/bootstrap/variables-*
+k8s/clusters/prod/bootstrap/variables-*
+k8s/bases/bootstrap/variables-base-*
+
+# --- This ignore-list itself (the instance curates its own ownership) ---
+.templatesyncignore

@@ -1,0 +1,107 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+  labels:
+    helm.toolkit.fluxcd.io/crds: enabled
+    helm.toolkit.fluxcd.io/helm-test: enabled
+    helm.toolkit.fluxcd.io/remediation: enabled
+spec:
+  interval: 2m
+  timeout: 10m
+  chart:
+    spec:
+      chart: cert-manager
+      version: v1.20.2
+      sourceRef:
+        kind: HelmRepository
+        name: cert-manager
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: -1
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: -1
+      remediateLastFailure: true
+  # https://github.com/cert-manager/cert-manager/blob/master/deploy/charts/cert-manager/values.yaml
+  values:
+    # Restricted PSS baseline: add runAsNonRoot to container SCs (chart leaves it unset, which fails validate-container-security).
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+    replicaCount: ${cert_manager_replicas:=2}
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 0
+        maxUnavailable: 1
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: cert-manager
+            app.kubernetes.io/instance: cert-manager
+    webhook:
+      replicaCount: ${cert_manager_replicas:=2}
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 1
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 0
+          maxUnavailable: 1
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: webhook
+              app.kubernetes.io/instance: cert-manager
+    cainjector:
+      replicaCount: ${cert_manager_replicas:=2}
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 1
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 0
+          maxUnavailable: 1
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: cainjector
+              app.kubernetes.io/instance: cert-manager
+    crds:
+      enabled: true

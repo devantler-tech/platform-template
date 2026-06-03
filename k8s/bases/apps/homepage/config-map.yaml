@@ -1,0 +1,171 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage
+  namespace: homepage
+data:
+  settings.yaml: |
+    title: Platform
+    favicon: https://avatars.githubusercontent.com/u/178524219?v=4&s=32
+    theme: dark
+    color: slate
+    # No background.image — eliminates the cold-load white→image flash and
+    # the cross-origin Unsplash dependency. The dark gradient backdrop is
+    # painted from custom.css below; cardBlur is omitted because there is
+    # no underlying image for backdrop-filter to blur.
+    headerStyle: clean
+    statusStyle: dot
+    iconStyle: gradient
+    hideVersion: true
+    target: _blank
+    # Layout order also controls render order on the page. Groups not listed
+    # here still appear (Homepage falls back to alphabetical) but get a generic
+    # icon — keep this in sync with the gethomepage.dev/group annotations on
+    # the HTTPRoutes under k8s/bases/apps/** and the service entries below.
+    layout:
+      Kubernetes:
+        icon: si-talos-#FF7300
+      Observability:
+        icon: si-grafana
+      Security:
+        icon: mdi-shield-lock
+      Diagnostics:
+        icon: mdi-stethoscope
+      Device Management:
+        icon: mdi-cellphone-cog
+      Cloud:
+        icon: si-hetzner
+      Network:
+        icon: si-cloudflare
+      Finance:
+        icon: mdi-finance
+      Analytics:
+        icon: si-googleanalytics
+      Personal Sites:
+        icon: mdi-web
+      Customer Sites:
+        icon: mdi-briefcase-account
+  kubernetes.yaml: |
+    mode: cluster
+    gateway: true
+  widgets.yaml: |
+    - logo:
+        icon: https://avatars.githubusercontent.com/u/178524219?v=4&s=200
+    - kubernetes:
+        cluster:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+          label: cluster
+        nodes:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+    - search:
+        provider: google
+        target: _blank
+    - datetime:
+        text_size: xl
+        format:
+          dateStyle: short
+          timeStyle: short
+          hourCycle: h23
+  services.yaml: |
+    - Cloud:
+        - Hetzner Cloud:
+            icon: hetzner
+            href: https://console.hetzner.cloud/projects
+            description: Hetzner Cloud infrastructure provider.
+    - Network:
+        - Cloudflare:
+            icon: cloudflare
+            href: https://dash.cloudflare.com
+            description: Central hub for managing public networking, e.g. FQDN and DNS.
+        - UniFi:
+            icon: unifi
+            href: https://unifi.ui.com
+            description: Central hub for managing on-prem UniFi network infrastructure.
+    - Analytics:
+        - Google Analytics:
+            icon: google-analytics
+            href: https://analytics.google.com
+            description: Web analytics service.
+  bookmarks.yaml: |
+    - Personal:
+        - Personal Site:
+            - icon: github-light
+              href: https://example.com
+    - GitHub:
+        - GitHub:
+            - icon: github-light
+              href: https://github.com
+        - DevantlerTech:
+            - icon: github-light
+              href: https://github.com/example-org
+        - Security:
+            - icon: si-github-#181717
+              href: https://github.com/orgs/example-org/security/overview
+        - Insights:
+            - icon: si-github-#181717
+              href: https://github.com/orgs/example-org/insights
+        - Packages:
+            - icon: si-github-#181717
+              href: https://github.com/orgs/example-org/packages
+        - Projects:
+            - icon: si-github-#181717
+              href: https://github.com/orgs/example-org/projects/1
+    - Developer Tools:
+        - Codecov:
+            - icon: si-codecov-#F01F7A
+              href: https://app.codecov.io
+        - StepSecurity:
+            - icon: si-stepsecurity
+              href: https://app.stepsecurity.io
+        - Renovate:
+            - icon: si-renovatebot-#007fa0
+              href: https://developer.mend.io
+        - skills.sh:
+            - icon: mdi-certificate-outline
+              href: https://skills.sh
+        - lllm-stats.com:
+            - icon: mdi-chart-bar
+              href: https://lllm-stats.com
+    - Kubernetes:
+        - ArtifactHUB:
+            - icon: si-artifacthub-#417598
+              href: https://artifacthub.io
+        - CRD Docs:
+            - icon: si-kubernetes-#326CE5
+              href: https://doc.crds.dev
+        - Network Policy Editor:
+            - icon: si-kubernetes-#326CE5
+              href: https://editor.networkpolicy.io
+    - Package Registries:
+        - Docker Hub:
+            - icon: docker
+              href: https://hub.docker.com
+        - NuGet:
+            - icon: si-nuget-#1088d6
+              href: https://www.nuget.org
+  docker.yaml: ""
+  # Backdrop replaces the previous remote Unsplash background image — no
+  # cross-origin asset, no cold-load flash. A slate-950 base plus two soft
+  # radial auras (blue top-left, violet bottom-right) gives a modern
+  # ambient-mesh feel without any image to download or composite. Applied
+  # to html+body so it covers the viewport even on tall scrollable pages,
+  # and `background-attachment: fixed` keeps the gradient anchored while
+  # cards scroll over it.
+  custom.css: |
+    html,
+    body {
+      background-color: rgb(2, 6, 23);
+      background-image:
+        radial-gradient(at 18% 12%, rgba(59, 130, 246, 0.18), transparent 55%),
+        radial-gradient(at 82% 88%, rgba(168, 85, 247, 0.14), transparent 55%);
+      background-attachment: fixed;
+      background-repeat: no-repeat;
+    }
+  custom.js: ""

@@ -1,0 +1,415 @@
+name: ✅ CI
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: 🔍 Detect Changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout repository
+      pull-requests: read # detect changed files
+    outputs:
+      k8s: ${{ steps.filter.outputs.k8s }}
+    steps:
+      - name: 🛡️ Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: 📑 Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: 🔍 Filter paths
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        id: filter
+        with:
+          filters: |
+            k8s:
+              - 'k8s/**'
+              - 'ksail.yaml'
+              - 'ksail.prod.yaml'
+              - '.sops.yaml'
+              - 'talos-local/**'
+              - 'talos/**'
+              - '.github/workflows/ci.yaml'
+
+  system-test:
+    name: 🧪 System Test
+    needs: [changes]
+    # Cluster-touching job: runs only in instances of this template (it needs the
+    # instance's SOPS/cluster secrets). In the template repo itself it is skipped;
+    # validate-scaffold.yaml is the scaffold gate there instead.
+    if: github.repository != 'devantler-tech/platform-template' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.k8s == 'true'
+    runs-on: ubuntu-latest
+    environment: ci
+    permissions:
+      contents: read # checkout repository
+    steps:
+      - name: 🛡️ Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: 📑 Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: 🧹 Free disk space
+        uses: endersonmenezes/free-disk-space@7901478139cff6e9d44df5972fd8ab8fcade4db1 # v3.2.2
+        with:
+          remove_android: true
+          remove_dotnet: true
+          remove_haskell: true
+          remove_tool_cache: true
+          remove_swap: false
+          remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
+          remove_packages_one_command: true
+          remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
+
+      - name: 🧪 System Test
+        uses: devantler-tech/ksail/.github/actions/ksail-cluster@d95ce969a1c812448b4f416cad606151145c71a5 # v7.23.4
+        with:
+          distribution: Talos
+          provider: Docker
+          ksail-version: "7.23.4"
+          init: "false"
+          validate: "true"
+          scan: "true"
+          scan-framework: "nsa"
+          sops-age-key: ${{ secrets.SOPS_AGE_KEY }}
+          hosts-file: ${{ vars.HOSTS_FILE }}
+          root-ca-cert-file: ${{ vars.ROOT_CA_CERT_FILE }}
+          push: "true"
+          reconcile: "true"
+          delete: "false"
+
+      - name: 🩺 Diagnose Flux on failure
+        if: failure()
+        run: |
+          set +e
+          echo "::group::Nodes"
+          kubectl get nodes -o wide
+          echo "::endgroup::"
+          echo "::group::Flux Kustomizations"
+          kubectl get kustomizations.kustomize.toolkit.fluxcd.io -A -o wide
+          echo "::endgroup::"
+          echo "::group::Flux HelmReleases"
+          kubectl get helmreleases.helm.toolkit.fluxcd.io -A -o wide
+          echo "::endgroup::"
+          echo "::group::Flux OCIRepositories"
+          kubectl get ocirepositories.source.toolkit.fluxcd.io -A -o wide
+          echo "::endgroup::"
+          echo "::group::Failing Kustomizations describe"
+          for k in infrastructure-controllers infrastructure apps; do
+            echo "--- $k ---"
+            kubectl describe kustomizations.kustomize.toolkit.fluxcd.io "$k" -n flux-system 2>&1 | tail -80
+          done
+          echo "::endgroup::"
+          echo "::group::Flux controller pods"
+          kubectl get pods -n flux-system -o wide
+          echo "::endgroup::"
+          echo "::group::kustomize-controller logs"
+          kubectl logs -n flux-system -l app=kustomize-controller --tail=300
+          echo "::endgroup::"
+          echo "::group::helm-controller logs"
+          kubectl logs -n flux-system -l app=helm-controller --tail=300
+          echo "::endgroup::"
+          echo "::group::source-controller logs"
+          kubectl logs -n flux-system -l app=source-controller --tail=200
+          echo "::endgroup::"
+          echo "::group::All pods"
+          kubectl get pods -A -o wide
+          echo "::endgroup::"
+          echo "::group::Recent events (warnings)"
+          kubectl get events -A --field-selector type=Warning --sort-by=.lastTimestamp | tail -100
+          echo "::endgroup::"
+          echo "::group::Failed/CrashLooping pod logs"
+          # Dump previous + current logs from any pod that's not Running OR
+          # has containers in a waiting/terminated-error state. CrashLoopBackOff
+          # pods stay in phase=Running with waiting.reason=CrashLoopBackOff,
+          # so we must inspect containerStatuses, not just phase.
+          pods_to_dump=$(kubectl get pods -A -o json 2>/dev/null | jq -r '
+            .items[]
+            | select(
+                .status.phase != "Running" and .status.phase != "Succeeded"
+                or ((.status.containerStatuses // [])[]? | (.restartCount // 0) > 0)
+                or ((.status.containerStatuses // [])[]? | (.state.waiting.reason // "") | test("CrashLoopBackOff|Error|ImagePullBackOff|ErrImagePull|CreateContainerError"))
+                or ((.status.containerStatuses // [])[]? | (.state.terminated.reason // "") == "Error")
+              )
+            | "\(.metadata.namespace)\t\(.metadata.name)"
+          ' | sort -u)
+          while IFS=$'\t' read -r ns name; do
+            [ -z "$ns" ] && continue
+            echo "--- $ns/$name (previous + current) ---"
+            kubectl logs -n "$ns" "$name" --all-containers --previous --tail=200 2>&1 | sed 's/^/  /'
+            echo "  --- current ---"
+            kubectl logs -n "$ns" "$name" --all-containers --tail=200 2>&1 | sed 's/^/  /'
+          done <<< "$pods_to_dump"
+          # Also dump logs from any Job pods (these often complete then disappear from "not Running")
+          while IFS=$'\t' read -r ns name; do
+            [ -z "$ns" ] && continue
+            echo "--- Job pod $ns/$name ---"
+            kubectl logs -n "$ns" "$name" --all-containers --tail=200 2>&1 | sed 's/^/  /'
+          done < <(kubectl get pods -A -l job-name -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+          echo "::endgroup::"
+          echo "::group::Failing Jobs describe"
+          kubectl get jobs -A -o json 2>/dev/null | jq -r '.items[] | select(.status.failed > 0 or (.status.conditions // [])[]?.type == "Failed") | "\(.metadata.namespace)/\(.metadata.name)"' | while read -r job; do
+            ns="${job%%/*}"; name="${job##*/}"
+            echo "--- $ns/$name ---"
+            kubectl describe job -n "$ns" "$name" 2>&1 | tail -50
+          done
+          echo "::endgroup::"
+
+      - name: 🔥 Delete cluster
+        if: always()
+        run: ksail cluster delete || echo "⚠️ Cluster may not have been created"
+
+
+  deploy-prod:
+    name: 🚀 Deploy to Prod
+    needs: [changes]
+    # Cluster-touching job: runs only in instances of this template (it needs the
+    # instance's prod cluster + GHCR secrets). Skipped in the template repo itself.
+    if: github.repository != 'devantler-tech/platform-template' && github.event_name == 'merge_group' && needs.changes.outputs.k8s == 'true'
+    runs-on: ubuntu-latest
+    environment: prod
+    # Shared with the CD tag-deploy workflow (cd.yaml) so a tag deploy and a
+    # merge-queue deploy can never run against the prod cluster at once.
+    concurrency:
+      group: prod-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read # checkout repository
+      packages: write # push OCI artifacts to GHCR
+      id-token: write # mint OIDC token for cosign keyless signing (Fulcio + Rekor)
+    steps:
+      - name: 🛡️ Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: 📑 Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: ⚙️ Setup KSail
+        # Install the KSail CLI from the release tarball via curl. We use curl
+        # rather than brew/setup-ksail-cli because the v7.20.0 release shipped
+        # only desktop artifacts (linux CLI missing, 404 on the tarball).
+        # v7.23.4 ships complete linux artifacts again and carries the
+        # cluster-update fixes; renovate keeps this pin current.
+        env:
+          # renovate: datasource=github-releases depName=devantler-tech/ksail extractVersion=^v(?<version>.+)$
+          KSAIL_VERSION: "7.23.4"
+        run: |
+          curl -fsSL "https://github.com/devantler-tech/ksail/releases/download/v${KSAIL_VERSION}/ksail_${KSAIL_VERSION}_linux_amd64.tar.gz" -o /tmp/ksail.tar.gz
+          tar -xzf /tmp/ksail.tar.gz -C /tmp
+          sudo install /tmp/ksail /usr/local/bin/ksail
+          ksail --version
+
+      - name: 🔐 Create SOPS Age key
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          mkdir -p ~/.config/sops/age
+          umask 077
+          echo "${SOPS_AGE_KEY}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: 🔑 Restore kubeconfig
+        # ksail cluster update needs a valid kubeconfig to detect the current
+        # cluster state. Without it, the component detector returns defaults and
+        # triggers spurious changes that all fail. The KUBE_CONFIG secret must be
+        # kept up-to-date from the homelab after any cluster recreation.
+        # See devantler-tech/ksail#4369 for the upstream design context.
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          mkdir -p ~/.kube
+          umask 077
+          printf '%s' "${KUBE_CONFIG}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: 🔑 Restore talosconfig
+        env:
+          TALOS_CONFIG: ${{ secrets.TALOS_CONFIG }}
+        run: |
+          mkdir -p ~/.talos
+          umask 077
+          printf '%s' "${TALOS_CONFIG}" > ~/.talos/config
+          chmod 600 ~/.talos/config
+
+      - name: 🩺 Verify prod cluster is reachable
+        # Fail fast if the restored kubeconfig can't reach the prod API server.
+        # When the cluster is unreachable — most commonly because KUBE_CONFIG /
+        # TALOS_CONFIG are stale after a cluster rebuild — `ksail cluster update`
+        # otherwise only warns, falls back to a "nothing is installed" baseline,
+        # proposes a full reinstall, and then fails mid-apply against the live
+        # nodes (a confusing, potentially destructive failure mode). Catch it
+        # here with an actionable message instead.
+        # Upstream: devantler-tech/ksail#4868 (fail fast) and #4869 (baseline).
+        # Pin --context to admin@prod (ksail.prod.yaml's connection.context) so
+        # the check targets the same cluster `ksail cluster update` will use,
+        # regardless of the restored kubeconfig's current-context.
+        run: |
+          # A missing admin@prod context means a malformed/incomplete kubeconfig,
+          # not an unreachable cluster — surface that case distinctly.
+          if ! kubectl config get-contexts -o name | grep -qx 'admin@prod'; then
+            echo "::error::Restored kubeconfig has no 'admin@prod' context (ksail.prod.yaml's connection.context). KUBE_CONFIG looks malformed or incomplete — refresh it."
+            exit 1
+          fi
+          last_err=""
+          for attempt in 1 2 3; do
+            # Capture kubectl's own stderr so the failure message is accurate.
+            if out=$(kubectl --context admin@prod get --raw='/readyz' --request-timeout=30s 2>&1); then
+              echo "✅ Prod API server reachable."
+              exit 0
+            fi
+            last_err="$out"
+            echo "Attempt ${attempt}/3: prod API server (context admin@prod) not reachable: ${out}"
+            sleep 10
+          done
+          last_err=$(printf '%s' "$last_err" | tr '\n' ' ')
+          echo "::error::Prod cluster (context admin@prod) is unreachable with the restored kubeconfig (last kubectl error: ${last_err}). KUBE_CONFIG (and likely TALOS_CONFIG) are probably stale after a cluster rebuild — refresh both and update the 'prod' environment secrets."
+          exit 1
+
+      - name: 🔄 Update cluster
+        run: ksail --config ksail.prod.yaml cluster update
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+
+      - name: 📦 Push manifests to GHCR
+        run: ksail --config ksail.prod.yaml workload push
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+
+      # ----- Supply-chain signing (mirrors cd.yaml's deploy job) -----
+      # The merge queue publishes the SAME ghcr.io/.../manifests:latest artifact
+      # that tag deploys (cd.yaml) do. Without signing here, whether the instance's
+      # artifact is signed depends on which path last deployed it — and merges
+      # happen far more often than tags. These three steps are a faithful copy of
+      # cd.yaml's signing block; keep them in sync. SBOM (syft) + SLSA provenance
+      # attestation are intentionally NOT mirrored yet: the cosign signature is the
+      # integrity property a Flux-side verifier checks, and attestation parity is a
+      # follow-up (ideally by extracting cd.yaml's block into a shared composite
+      # action so the two paths can never drift again).
+      - name: ⚙️ Install cosign
+        env:
+          # renovate: datasource=github-releases depName=sigstore/cosign extractVersion=^v(?<version>.+)$
+          COSIGN_VERSION: "3.0.6"
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v${{ env.COSIGN_VERSION }}'
+
+      - name: 🔐 Configure GHCR auth (cosign)
+        # Pre-create ~/.docker/config.json so cosign + buildx imagetools resolve
+        # GHCR creds via the OCI keychain (no `cosign login`/`docker login`
+        # "credentials stored unencrypted" warning). Byte-identical to cd.yaml.
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.docker
+          AUTH=$(printf '%s:%s' "${GITHUB_ACTOR}" "${GHCR_TOKEN}" | base64 -w0)
+          echo "::add-mask::${AUTH}"
+          jq -n --arg auth "${AUTH}" \
+            '{auths: {"ghcr.io": {auth: $auth}}}' \
+            > ~/.docker/config.json
+          chmod 600 ~/.docker/config.json
+
+      - name: 🖋️ Sign OCI manifest with cosign (keyless)
+        # Resolve tag → digest, then sign by digest: no tag→digest TOCTOU under a
+        # concurrent deploy, and forward-compatible with cosign v3 (which removed
+        # tag-based signing). Fulcio binds the signature to THIS workflow's OIDC
+        # identity (…/.github/workflows/ci.yaml@…), so a Flux-side verifier's
+        # matchOIDCIdentity must allow both ci.yaml and cd.yaml identities.
+        id: cosign-sign
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          REF_TAG="ghcr.io/${{ github.repository }}/manifests:latest"
+          DIGEST=$(docker buildx imagetools inspect "${REF_TAG}" --format '{{.Manifest.Digest}}')
+          REF="ghcr.io/${{ github.repository }}/manifests@${DIGEST}"
+          cosign sign --yes --recursive "${REF}"
+          echo "digest=${DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "ref=${REF_TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: 🔁 Trigger Flux reconciliation
+        id: reconcile
+        run: ksail --config ksail.prod.yaml workload reconcile
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+
+      - name: 🩺 Diagnose Flux on failure
+        if: failure() && steps.reconcile.outcome == 'failure'
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          set +e
+          echo "::group::Flux Kustomizations"
+          kubectl get kustomizations.kustomize.toolkit.fluxcd.io -A -o wide
+          echo "::endgroup::"
+          echo "::group::Flux HelmReleases"
+          kubectl get helmreleases.helm.toolkit.fluxcd.io -A -o wide
+          echo "::endgroup::"
+          echo "::group::Flux OCIRepositories"
+          kubectl get ocirepositories.source.toolkit.fluxcd.io -A -o wide
+          echo "::endgroup::"
+          echo "::group::Failing Kustomizations describe"
+          for k in infrastructure-controllers infrastructure apps; do
+            echo "--- $k ---"
+            kubectl describe kustomizations.kustomize.toolkit.fluxcd.io "$k" -n flux-system 2>&1 | tail -60
+          done
+          echo "::endgroup::"
+          echo "::group::Flux controller pods"
+          kubectl get pods -n flux-system -o wide
+          echo "::endgroup::"
+          echo "::group::kustomize-controller logs"
+          kubectl logs -n flux-system -l app=kustomize-controller --tail=200
+          echo "::endgroup::"
+          echo "::group::helm-controller logs"
+          kubectl logs -n flux-system -l app=helm-controller --tail=200
+          echo "::endgroup::"
+          echo "::group::source-controller logs"
+          kubectl logs -n flux-system -l app=source-controller --tail=100
+          echo "::endgroup::"
+          echo "::group::Recent events (warnings)"
+          kubectl get events -A --field-selector type=Warning --sort-by=.lastTimestamp | tail -50
+          echo "::endgroup::"
+
+  ci-required-checks:
+    name: CI - Required Checks
+    runs-on: ubuntu-latest
+    needs: [changes, system-test, deploy-prod]
+    if: always()
+    permissions: {}
+    steps:
+      - name: 📊 Evaluate job results
+        uses: devantler-tech/actions/aggregate-job-checks@1dddb9d8e7f448a5880d05695742b35960da5bb0 # v5.2.0
+        with:
+          job-results: >-
+            ${{ needs.changes.result }}
+            ${{ needs.system-test.result }}
+            ${{ needs.deploy-prod.result }}

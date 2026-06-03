@@ -1,0 +1,14 @@
+# Bootstrap replaces <INSTANCE_AGE_PUBLIC_KEY> with the generated Age public key, then encrypts every *.enc.yaml.
+creation_rules:
+  - path_regex: ^k8s\/clusters\/local\/.+\.enc\.ya?ml$
+    encrypted_regex: ^(data|stringData)$
+    age: <INSTANCE_AGE_PUBLIC_KEY>
+  - path_regex: ^k8s\/clusters\/prod\/.+\.enc\.ya?ml$
+    encrypted_regex: ^(data|stringData)$
+    age: <INSTANCE_AGE_PUBLIC_KEY>
+  - path_regex: ^k8s\/providers\/hetzner\/.+\.enc\.ya?ml$
+    encrypted_regex: ^(data|stringData)$
+    age: <INSTANCE_AGE_PUBLIC_KEY>
+  - path_regex: ^.+\.enc\.ya?ml$
+    encrypted_regex: ^(data|stringData)$
+    age: <INSTANCE_AGE_PUBLIC_KEY>

@@ -1,0 +1,46 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: hcloud-cloud-controller-manager
+  namespace: kube-system
+  labels:
+    helm.toolkit.fluxcd.io/remediation: enabled
+spec:
+  chart:
+    spec:
+      chart: hcloud-cloud-controller-manager
+      version: 1.31.1
+      sourceRef:
+        kind: HelmRepository
+        name: hcloud
+  interval: 10m0s
+  timeout: 10m
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    remediation:
+      retries: -1
+      remediateLastFailure: true
+  # https://github.com/hetznercloud/hcloud-cloud-controller-manager/blob/main/chart/values.yaml
+  values:
+    networking:
+      enabled: true
+      clusterCIDR: 10.244.0.0/16
+    replicaCount: ${hcloud_ccm_replicas:=2}
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 1
+        maxUnavailable: 0
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: hcloud-cloud-controller-manager
+                  app.kubernetes.io/instance: hcloud-cloud-controller-manager

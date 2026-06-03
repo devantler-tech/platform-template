@@ -1,0 +1,70 @@
+# TODO: Remove auth-proxy when Cilium supports native forward auth (https://github.com/cilium/cilium/issues/23797)
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-auth-proxy
+  namespace: oauth2-proxy
+spec:
+  endpointSelector:
+    matchLabels:
+      app: auth-proxy
+  ingress:
+    # Authenticated traffic from oauth2-proxy
+    - fromEndpoints:
+        - matchLabels:
+            app: oauth2-proxy
+            k8s:io.kubernetes.pod.namespace: oauth2-proxy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    # Homepage upstream
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: homepage
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    # Hubble UI upstream via KEDA HTTP add-on interceptor (scale-to-zero).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: keda
+            app.kubernetes.io/component: interceptor
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Observability UIs: Grafana (3000), Prometheus (9090), Alertmanager (9093).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: monitoring
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+            - port: "9090"
+              protocol: TCP
+            - port: "9093"
+              protocol: TCP
+    # OpenCost UI upstream.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: opencost
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+    # DNS resolution
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP

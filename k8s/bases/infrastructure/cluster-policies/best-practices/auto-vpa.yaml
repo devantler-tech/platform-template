@@ -1,0 +1,194 @@
+# TODO: Upstream `auto-vpa.yaml` to Kyverno policies repository.
+#
+# kube-system is intentionally NOT excluded: its controllers (cilium,
+# cilium-envoy, spire-agent, coredns, metrics-server, hubble, hcloud
+# ccm/csi, tetragon, cluster-autoscaler) carry ~10Gi of hand-tuned request
+# floors that VPA can right-size to observed usage instead. Static
+# control-plane pods (kube-apiserver/etcd/scheduler/controller-manager) are
+# bare Pods, not Deployment/StatefulSet/DaemonSet, so they never match.
+#
+# IN-PLACE RESIZE (no eviction) requires k8s >= 1.33, where the
+# InPlacePodVerticalScaling feature gate is beta and ON by default. VPA here
+# is already 1.6 (its own InPlaceOrRecreate gate defaults on since 1.5) and
+# the rules below already set updateMode InPlaceOrRecreate, so nothing else
+# needs to change -- the cluster just has to run >= 1.33.
+#
+# On k8s < 1.33 the gate is alpha/off, so InPlaceOrRecreate falls back to
+# Recreate: VPA applies a recommendation by EVICTING the pod. For the
+# kube-system DaemonSets (cilium / spire-agent) that is a brief per-node
+# datapath blip as each pod restarts, one node at a time; spire-server
+# (StatefulSet) uses updateMode Initial and is never evicted. Until prod is
+# upgraded to >= 1.33 (target 1.34; Talos 1.12 supports k8s 1.30-1.35),
+# expect a one-time round of such evictions as VPA applies its initial recs.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: auto-vpa
+  annotations:
+    policies.kyverno.io/title: Auto VPA
+    policies.kyverno.io/category: Autoscaling
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/subject: Deployment,StatefulSet,DaemonSet
+    policies.kyverno.io/description: >-
+      Generates a VerticalPodAutoscaler for every Deployment, StatefulSet,
+      and DaemonSet in every namespace, including kube-system, so the
+      cluster's control-plane add-ons and datapath controllers are
+      right-sized to observed usage too. VPA controls both CPU and memory
+      to ensure workloads do not over-request resources. KEDA-managed
+      workloads use HTTP request rate (not CPU) for horizontal scaling,
+      so VPA CPU management does not conflict.
+spec:
+  rules:
+    - name: generate-vpa-for-deployment
+      match:
+        resources:
+          kinds:
+            - Deployment
+      generate:
+        apiVersion: autoscaling.k8s.io/v1
+        kind: VerticalPodAutoscaler
+        name: "{{request.object.metadata.name}}"
+        namespace: "{{request.object.metadata.namespace}}"
+        synchronize: true
+        data:
+          spec:
+            targetRef:
+              apiVersion: apps/v1
+              kind: Deployment
+              name: "{{request.object.metadata.name}}"
+            updatePolicy:
+              updateMode: "InPlaceOrRecreate"
+              minReplicas: 1
+            resourcePolicy:
+              containerPolicies:
+                - containerName: "*"
+                  controlledResources: ["cpu", "memory"]
+                  # RequestsAndLimits (not RequestsOnly): VPA also scales each
+                  # container's limit in proportion to the request it sets,
+                  # preserving the authored limit:request ratio. Under
+                  # RequestsOnly the limit stayed fixed, so any workload whose
+                  # VPA target outgrew its static memory limit was capped below
+                  # its known need and OOMKilled (e.g. loki once audit-log
+                  # ingest grew). The request is still bounded by maxAllowed
+                  # below; CPU limits only loosen (less throttling, no OOM).
+                  controlledValues: RequestsAndLimits
+                  minAllowed:
+                    # CPU floor lowered 50m->15m: live data showed 87 containers
+                    # pinned at the 50m floor using avg 4.4m — VPA was floored,
+                    # not the workloads. CPU is compressible; 15m covers observed
+                    # usage with margin and frees ~3 cores of reserved-unused
+                    # requests. Memory floor kept at 64Mi (memory runs ~89% hot).
+                    cpu: "15m"
+                    memory: "64Mi"
+                  # Upper bound: stops a leaking/runaway workload from having
+                  # its request pushed to an unschedulable size or silently
+                  # forcing an autoscaler node. 3 CPU / 6Gi still fits a cx33
+                  # worker (the largest node type). Tune against live VPA
+                  # recommendations (kubectl get vpa -A).
+                  maxAllowed:
+                    cpu: "3"
+                    memory: "6Gi"
+    - name: generate-vpa-for-statefulset
+      match:
+        resources:
+          kinds:
+            - StatefulSet
+      generate:
+        apiVersion: autoscaling.k8s.io/v1
+        kind: VerticalPodAutoscaler
+        name: "{{request.object.metadata.name}}"
+        namespace: "{{request.object.metadata.namespace}}"
+        synchronize: true
+        data:
+          spec:
+            targetRef:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              name: "{{request.object.metadata.name}}"
+            updatePolicy:
+              # StatefulSets here are singletons backed by ReadWriteOnce hcloud
+              # volumes. Evicting such a pod to apply a recommendation reschedules
+              # it before the old VolumeAttachment releases, causing a Multi-Attach
+              # error and an outage. "Initial" still right-sizes pods at creation
+              # but never evicts a running stateful pod, so recommendations land on
+              # the next natural restart (rollout, node maintenance) instead of
+              # mid-flight.
+              updateMode: "Initial"
+            resourcePolicy:
+              containerPolicies:
+                - containerName: "*"
+                  controlledResources: ["cpu", "memory"]
+                  # RequestsAndLimits (not RequestsOnly): VPA also scales each
+                  # container's limit in proportion to the request it sets,
+                  # preserving the authored limit:request ratio. Under
+                  # RequestsOnly the limit stayed fixed, so any workload whose
+                  # VPA target outgrew its static memory limit was capped below
+                  # its known need and OOMKilled (e.g. loki once audit-log
+                  # ingest grew). The request is still bounded by maxAllowed
+                  # below; CPU limits only loosen (less throttling, no OOM).
+                  controlledValues: RequestsAndLimits
+                  minAllowed:
+                    # CPU floor lowered 50m->15m: live data showed 87 containers
+                    # pinned at the 50m floor using avg 4.4m — VPA was floored,
+                    # not the workloads. CPU is compressible; 15m covers observed
+                    # usage with margin and frees ~3 cores of reserved-unused
+                    # requests. Memory floor kept at 64Mi (memory runs ~89% hot).
+                    cpu: "15m"
+                    memory: "64Mi"
+                  # Upper bound: stops a leaking/runaway workload from having
+                  # its request pushed to an unschedulable size or silently
+                  # forcing an autoscaler node. 3 CPU / 6Gi still fits a cx33
+                  # worker (the largest node type). Tune against live VPA
+                  # recommendations (kubectl get vpa -A).
+                  maxAllowed:
+                    cpu: "3"
+                    memory: "6Gi"
+    - name: generate-vpa-for-daemonset
+      match:
+        resources:
+          kinds:
+            - DaemonSet
+      generate:
+        apiVersion: autoscaling.k8s.io/v1
+        kind: VerticalPodAutoscaler
+        name: "{{request.object.metadata.name}}"
+        namespace: "{{request.object.metadata.namespace}}"
+        synchronize: true
+        data:
+          spec:
+            targetRef:
+              apiVersion: apps/v1
+              kind: DaemonSet
+              name: "{{request.object.metadata.name}}"
+            updatePolicy:
+              updateMode: "InPlaceOrRecreate"
+              minReplicas: 1
+            resourcePolicy:
+              containerPolicies:
+                - containerName: "*"
+                  controlledResources: ["cpu", "memory"]
+                  # RequestsAndLimits (not RequestsOnly): VPA also scales each
+                  # container's limit in proportion to the request it sets,
+                  # preserving the authored limit:request ratio. Under
+                  # RequestsOnly the limit stayed fixed, so any workload whose
+                  # VPA target outgrew its static memory limit was capped below
+                  # its known need and OOMKilled (e.g. loki once audit-log
+                  # ingest grew). The request is still bounded by maxAllowed
+                  # below; CPU limits only loosen (less throttling, no OOM).
+                  controlledValues: RequestsAndLimits
+                  minAllowed:
+                    # CPU floor lowered 50m->15m: live data showed 87 containers
+                    # pinned at the 50m floor using avg 4.4m — VPA was floored,
+                    # not the workloads. CPU is compressible; 15m covers observed
+                    # usage with margin and frees ~3 cores of reserved-unused
+                    # requests. Memory floor kept at 64Mi (memory runs ~89% hot).
+                    cpu: "15m"
+                    memory: "64Mi"
+                  # Lower upper bound than Deployments/StatefulSets: a DaemonSet
+                  # pod must schedule on EVERY node, including autoscale-small
+                  # cx23 workers (2 vCPU / 4 GB). Bound it to fit a cx23 next to
+                  # the other per-node agents; this still covers the heaviest
+                  # auto-VPA'd DaemonSet observed (kubescape node-agent ~0.7Gi).
+                  maxAllowed:
+                    cpu: "1"
+                    memory: "1Gi"

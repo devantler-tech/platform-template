@@ -1,0 +1,23 @@
+name: 🎉 Release
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  release:
+    # Instances only: each instance cuts releases (and `v*` tags → cd.yaml) of its
+    # own cluster repo. The template repo itself ships no release (it is the sync
+    # source; downstream instances release independently).
+    if: github.repository != 'devantler-tech/platform-template'
+    uses: devantler-tech/reusable-workflows/.github/workflows/create-release.yaml@d6c7133cb8cb13189b97993aeb3f4d120f27479d # v5.4.1
+    permissions:
+      contents: write # create releases and tags
+      issues: write # comment on related issues
+      pull-requests: write # comment on related PRs
+      id-token: write # provenance signing
+    secrets:
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

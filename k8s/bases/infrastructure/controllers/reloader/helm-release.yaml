@@ -1,0 +1,61 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: reloader
+  namespace: reloader
+  labels:
+    helm.toolkit.fluxcd.io/helm-test: enabled
+    helm.toolkit.fluxcd.io/remediation: enabled
+spec:
+  interval: 2m
+  timeout: 10m
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    remediation:
+      retries: -1
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: reloader
+      version: 2.2.12
+      sourceRef:
+        kind: HelmRepository
+        name: reloader
+  # https://github.com/stakater/Reloader/blob/master/deployments/kubernetes/chart/reloader/values.yaml
+  values:
+    reloader:
+      readOnlyRootFileSystem: true
+      reloadStrategy: annotations
+      enableHA: true
+      deployment:
+        replicas: ${reloader_replicas:=2}
+        securityContext:
+          runAsUser: 65534
+          runAsGroup: 65534
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        containerSecurityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app: reloader-reloader
+        labels:
+          provider: stakater
+          group: com.stakater.platform
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 1

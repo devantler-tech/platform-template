@@ -1,0 +1,323 @@
+name: 🌱 Bootstrap
+
+# One-shot, fully-automated bootstrap for a NEW instance of this template.
+#
+# What it does (prod / Hetzner):
+#   1. Generates an Age keypair and writes the public key into .sops.yaml.
+#   2. Renders the per-instance config from GitHub *Variables*.
+#   3. Encrypts secret values from GitHub *Secrets* into the committed *.enc.yaml.
+#   4. Provisions the cluster with `ksail cluster create` (Talos on Hetzner).
+#   5. Writes the cluster-derived creds (kubeconfig, talosconfig, the generated
+#      Age key) back as `prod` environment secrets — this is what lets the
+#      steady-state CD pipeline (cd.yaml / ci.yaml) take over afterwards.
+#   6. Best-effort: points Cloudflare DNS at the new load balancer.
+#   7. Publishes the manifests (OCI → GHCR) and reconciles Flux.
+#   8. Commits the rendered + encrypted tree back so the instance is reproducible.
+#
+# Prerequisites (see docs/BOOTSTRAP.md):
+#   * A GitHub App installed on this repo with **Contents: write**, **Secrets:
+#     write**, **Environments: write** and **Actions: write** — its credentials
+#     are provided as the `APP_ID` Variable and `APP_PRIVATE_KEY` Secret. The
+#     default GITHUB_TOKEN cannot set repository/environment secrets, which is
+#     why an App (or a fine-grained PAT) is required.
+#   * GitHub *Variables*: DOMAIN, CLOUDFLARE_ZONE, CLOUDFLARE_ACCOUNT_ID,
+#     ADMIN_EMAIL, HETZNER_LOCATION, GITHUB_APP_CLIENT_ID, R2_BUCKET (optional).
+#   * GitHub *Secrets*: HCLOUD_TOKEN, GHCR_TOKEN, CLOUDFLARE_API_TOKEN,
+#     R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, ALERTMANAGER_WEBHOOK_URL,
+#     ALERTMANAGER_HEARTBEAT_URL, GITHUB_APP_CLIENT_SECRET, APP_PRIVATE_KEY.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which environment to bootstrap"
+        type: choice
+        default: prod
+        options: [prod, local]
+      confirm:
+        description: "Type 'yes' to confirm — this provisions real infrastructure"
+        type: string
+        required: true
+
+permissions: {}
+
+# Never let two bootstraps (or a bootstrap and a deploy) race the same cluster.
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: false
+
+env:
+  # renovate: datasource=github-releases depName=devantler-tech/ksail extractVersion=^v(?<version>.+)$
+  KSAIL_VERSION: "7.23.4"
+
+jobs:
+  bootstrap:
+    name: 🌱 Bootstrap ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    # Guard: never run in the template repo itself — only in instances.
+    if: github.repository != 'devantler-tech/platform-template'
+    permissions:
+      contents: read # checkout; the commit-back uses the App token, not GITHUB_TOKEN
+      packages: write # push the OCI manifest artifact to GHCR
+    steps:
+      - name: 🛡️ Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: 🛑 Confirm
+        if: inputs.confirm != 'yes'
+        run: |
+          echo "::error::Refusing to run: set the 'confirm' input to 'yes'."
+          exit 1
+
+      - name: 🎟️ Mint App token
+        id: app-token
+        # actions/* may be ref-pinned per zizmor.yml policy.
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: 📑 Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: 🧯 Refuse if already bootstrapped
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          if gh secret list --env prod 2>/dev/null | grep -q '^KUBE_CONFIG'; then
+            echo "::error::A 'prod' KUBE_CONFIG secret already exists — this repo looks bootstrapped. Tear down first (ksail cluster delete) and delete the secret to re-bootstrap."
+            exit 1
+          fi
+
+      - name: ⚙️ Install tooling (ksail, sops, age, yq)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # ksail (release tarball — same method as cd.yaml)
+          curl -fsSL "https://github.com/devantler-tech/ksail/releases/download/v${KSAIL_VERSION}/ksail_${KSAIL_VERSION}_linux_amd64.tar.gz" -o /tmp/ksail.tar.gz
+          tar -xzf /tmp/ksail.tar.gz -C /tmp
+          sudo install /tmp/ksail /usr/local/bin/ksail
+          ksail --version
+          # sops + age (apt) and yq (preinstalled on ubuntu-latest)
+          sudo apt-get update -qq && sudo apt-get install -y -qq age
+          SOPS_VERSION=3.13.1
+          curl -fsSL "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64" -o /tmp/sops
+          sudo install /tmp/sops /usr/local/bin/sops
+          sops --version && age --version && yq --version
+
+      - name: 🔑 Generate Age key + update .sops.yaml
+        id: age
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.config/sops/age
+          umask 077
+          age-keygen -o ~/.config/sops/age/keys.txt 2>/dev/null
+          PUB=$(age-keygen -y ~/.config/sops/age/keys.txt)
+          # Wire the public key into every .sops.yaml rule (single instance key).
+          sed -i "s|<INSTANCE_AGE_PUBLIC_KEY>|${PUB}|g" .sops.yaml
+          # Expose the PRIVATE key to later steps (masked) for the secret write-back.
+          echo "::add-mask::$(cat ~/.config/sops/age/keys.txt | grep AGE-SECRET-KEY)"
+          { echo "age_key<<EOF"; cat ~/.config/sops/age/keys.txt; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          ksail cipher import "$(cat ~/.config/sops/age/keys.txt)" || true
+
+      - name: 🧩 Render configuration from Variables
+        env:
+          DOMAIN: ${{ vars.DOMAIN }}
+          CLOUDFLARE_ZONE: ${{ vars.CLOUDFLARE_ZONE }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
+          HETZNER_LOCATION: ${{ vars.HETZNER_LOCATION }}
+          GITHUB_APP_CLIENT_ID: ${{ vars.GITHUB_APP_CLIENT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          export DOMAIN_REGEX R2_ENDPOINT BUCKET
+          DOMAIN_REGEX=$(printf '%s' "$DOMAIN" | sed 's/\./\\./g')
+          BUCKET="${R2_BUCKET:-platform-backups}"
+          R2_ENDPOINT="https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+          # --- variables-base (shared) ---
+          yq -i '
+            .data.cloudflare_account_id = strenv(CLOUDFLARE_ACCOUNT_ID) |
+            .data.r2_endpoint = strenv(R2_ENDPOINT) |
+            .data.cloudflare_zone = strenv(CLOUDFLARE_ZONE) |
+            .data.r2_bucket = strenv(BUCKET)
+          ' k8s/bases/bootstrap/variables-base-config-map.yaml
+
+          # --- variables-cluster (prod) ---
+          yq -i '
+            .data.domain = strenv(DOMAIN) |
+            .data.domain_regex = strenv(DOMAIN_REGEX) |
+            .data.github_app_client_id = strenv(GITHUB_APP_CLIENT_ID) |
+            .data.admin_email = strenv(ADMIN_EMAIL)
+          ' k8s/clusters/prod/bootstrap/variables-cluster-config-map.yaml
+
+          # --- variables-cluster (local — keeps platform.lan, just identity) ---
+          yq -i "
+            .data.github_app_client_id = strenv(GITHUB_APP_CLIENT_ID) |
+            .data.admin_email = strenv(ADMIN_EMAIL)
+          " k8s/clusters/local/bootstrap/variables-cluster-config-map.yaml
+
+          # --- ksail.prod.yaml: registry + Hetzner location ---
+          sed -i "s|REPLACE_OWNER|${OWNER}|g; s|REPLACE_REPO|${REPO}|g" ksail.prod.yaml
+          if [ -n "${HETZNER_LOCATION:-}" ]; then
+            HETZNER_LOCATION="$HETZNER_LOCATION" yq -i '.spec.provider.hetzner.location = strenv(HETZNER_LOCATION)' ksail.prod.yaml
+          fi
+
+          # --- Talos OIDC issuer + any domain literals ---
+          grep -rIl 'platform\.example\.com' talos/ talos-local/ 2>/dev/null | xargs -r sed -i "s|platform\.example\.com|${DOMAIN}|g"
+
+          # --- SSO org (Dex connector, oauth2-proxy group, Flux-web admins) → repo owner ---
+          grep -rIl 'example-org' k8s/ 2>/dev/null | xargs -r sed -i "s|example-org|${OWNER}|g"
+
+      - name: 🔐 Encrypt secrets into *.enc.yaml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ALERTMANAGER_WEBHOOK_URL: ${{ secrets.ALERTMANAGER_WEBHOOK_URL }}
+          ALERTMANAGER_HEARTBEAT_URL: ${{ secrets.ALERTMANAGER_HEARTBEAT_URL }}
+          GITHUB_APP_CLIENT_SECRET: ${{ secrets.GITHUB_APP_CLIENT_SECRET }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Internal secrets that need no human input — generate random values.
+          export DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
+          export FLUX_WEB_CLIENT_SECRET="$(openssl rand -hex 32)"
+          export OAUTH2_PROXY_COOKIE_SECRET="$(openssl rand -base64 32)"
+
+          fill_base() { # variables-base-secret
+            yq -i '
+              .stringData.cloudflare_api_token = strenv(CLOUDFLARE_API_TOKEN) |
+              .stringData.r2_access_key_id = strenv(R2_ACCESS_KEY_ID) |
+              .stringData.r2_secret_access_key = strenv(R2_SECRET_ACCESS_KEY)
+            ' "$1"
+          }
+          fill_base k8s/bases/bootstrap/variables-base-secret.enc.yaml
+
+          # prod cluster secret
+          yq -i '
+            .stringData.alertmanager_webhook_url = strenv(ALERTMANAGER_WEBHOOK_URL) |
+            .stringData.alertmanager_heartbeat_url = strenv(ALERTMANAGER_HEARTBEAT_URL) |
+            .stringData.dex_client_secret = strenv(DEX_CLIENT_SECRET) |
+            .stringData.flux_web_client_secret = strenv(FLUX_WEB_CLIENT_SECRET) |
+            .stringData.oauth2_proxy_cookie_secret = strenv(OAUTH2_PROXY_COOKIE_SECRET) |
+            .stringData.github_app_client_secret = strenv(GITHUB_APP_CLIENT_SECRET) |
+            .stringData.hcloud_token = strenv(HCLOUD_TOKEN) |
+            .stringData.r2_access_key_id = strenv(R2_ACCESS_KEY_ID) |
+            .stringData.r2_secret_access_key = strenv(R2_SECRET_ACCESS_KEY)
+          ' k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml
+
+          # local cluster secret
+          yq -i '
+            .stringData.alertmanager_webhook_url = strenv(ALERTMANAGER_WEBHOOK_URL) |
+            .stringData.dex_client_secret = strenv(DEX_CLIENT_SECRET) |
+            .stringData.flux_web_client_secret = strenv(FLUX_WEB_CLIENT_SECRET) |
+            .stringData.oauth2_proxy_cookie_secret = strenv(OAUTH2_PROXY_COOKIE_SECRET) |
+            .stringData.github_app_client_secret = strenv(GITHUB_APP_CLIENT_SECRET) |
+            .stringData.r2_access_key_id = strenv(R2_ACCESS_KEY_ID) |
+            .stringData.r2_secret_access_key = strenv(R2_SECRET_ACCESS_KEY)
+          ' k8s/clusters/local/bootstrap/variables-cluster-secret.enc.yaml
+
+          # Encrypt in place with the instance's Age key (now in .sops.yaml).
+          for f in \
+            k8s/bases/bootstrap/variables-base-secret.enc.yaml \
+            k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml \
+            k8s/clusters/local/bootstrap/variables-cluster-secret.enc.yaml; do
+            sops -e -i "$f"
+          done
+
+      - name: ✅ Validate rendered manifests
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: ksail --config ksail.${{ inputs.environment == 'local' && 'yaml' || 'prod.yaml' }} workload validate
+
+      - name: 🚀 Create cluster
+        # The genuine first-bootstrap primitive (NOT `cluster update`). Errors
+        # out if the cluster already exists, so this is safe against double-runs.
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: ksail --config ksail.${{ inputs.environment == 'local' && 'yaml' || 'prod.yaml' }} cluster create
+
+      - name: 🔐 Write cluster creds back as prod environment secrets
+        if: inputs.environment == 'prod'
+        # The chicken-and-egg fix: kubeconfig + talosconfig only exist AFTER the
+        # first create, but steady-state CD (cd.yaml) needs them. Persist them
+        # (and the generated Age key) so every later run is unattended.
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          AGE_KEY: ${{ steps.age.outputs.age_key }}
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          gh api --method PUT "repos/${REPO}/environments/prod" >/dev/null
+          gh secret set KUBE_CONFIG --env prod --repo "$REPO" < ~/.kube/config
+          gh secret set TALOS_CONFIG --env prod --repo "$REPO" < ~/.talos/config
+          printf '%s' "$AGE_KEY" | gh secret set SOPS_AGE_KEY --env prod --repo "$REPO"
+          # Repo-level copy so CI (system-test / validate) can decrypt too.
+          printf '%s' "$AGE_KEY" | gh secret set SOPS_AGE_KEY --repo "$REPO"
+          echo "✅ Wrote KUBE_CONFIG, TALOS_CONFIG, SOPS_AGE_KEY to the prod environment."
+
+      - name: 🌐 Point Cloudflare DNS at the load balancer (best-effort)
+        if: inputs.environment == 'prod'
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE: ${{ vars.CLOUDFLARE_ZONE }}
+          DOMAIN: ${{ vars.DOMAIN }}
+        run: |
+          set -uo pipefail
+          # The LB IP only exists once the cloud LB is provisioned — poll for it.
+          LB_IP=""
+          for i in $(seq 1 30); do
+            LB_IP=$(kubectl get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.status.loadBalancer.ingress[0].ip}{"\n"}{end}' 2>/dev/null | grep -E '^[0-9]' | head -1 || true)
+            [ -n "$LB_IP" ] && break
+            echo "Waiting for load balancer IP ($i/30)…"; sleep 20
+          done
+          if [ -z "$LB_IP" ]; then
+            echo "::warning::Could not resolve the load balancer IP. Manually create A/AAAA records for ${DOMAIN} and *.${DOMAIN} once it is assigned."
+            exit 0
+          fi
+          echo "Load balancer IP: $LB_IP"
+          ZONE_ID=$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/zones?name=${CLOUDFLARE_ZONE}" | yq -r '.result[0].id')
+          for NAME in "${DOMAIN}" "*.${DOMAIN}"; do
+            curl -fsS -X POST -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" \
+              "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
+              --data "{\"type\":\"A\",\"name\":\"${NAME}\",\"content\":\"${LB_IP}\",\"proxied\":false}" \
+              >/dev/null && echo "Set A ${NAME} → ${LB_IP}" || echo "::warning::Could not set A record for ${NAME} (it may already exist)."
+          done
+
+      - name: 📦 Push manifests + reconcile
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          CFG="ksail.${{ inputs.environment == 'local' && 'yaml' || 'prod.yaml' }}"
+          ksail --config "$CFG" workload push
+          ksail --config "$CFG" workload reconcile
+
+      - name: 💾 Commit the rendered + encrypted tree
+        if: inputs.environment == 'prod'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git add .sops.yaml ksail.prod.yaml talos/ k8s/
+          git commit -m "chore: bootstrap rendered configuration
+
+          > 🤖 Generated by the Bootstrap workflow" || { echo "Nothing to commit"; exit 0; }
+          git push origin "HEAD:${{ github.ref_name }}"

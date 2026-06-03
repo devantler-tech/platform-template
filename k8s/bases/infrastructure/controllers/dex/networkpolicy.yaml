@@ -1,0 +1,85 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-dex
+  namespace: dex
+spec:
+  endpointSelector: {}
+  ingress:
+    # Gateway ingress for OIDC endpoints (external traffic via Cilium Gateway)
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: "5556"
+              protocol: TCP
+    # OIDC token exchange from Headlamp backend (hairpin via gateway ClusterIP
+    # preserves the originating pod identity instead of using the 'ingress' entity)
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: headlamp
+      toPorts:
+        - ports:
+            - port: "5556"
+              protocol: TCP
+    # gRPC from oauth2-proxy
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: oauth2-proxy
+      toPorts:
+        - ports:
+            - port: "5556"
+              protocol: TCP
+            - port: "5558"
+              protocol: TCP
+    # OIDC token + userinfo exchange from Grafana (native auth.generic_oauth).
+    # Same in-cluster path as headlamp/oauth2-proxy: Grafana's server-side
+    # calls hit the Dex Service directly and arrive with the monitoring pod
+    # identity, so they must be allowed explicitly here.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: monitoring
+      toPorts:
+        - ports:
+            - port: "5556"
+              protocol: TCP
+  egress:
+    # Kube API for reading secrets
+    - toEntities:
+        - kube-apiserver
+    # GitHub OAuth flow. Pinned by FQDN rather than world:443 so a
+    # compromised dex pod cannot reach arbitrary external services.
+    # - github.com         — OAuth authorize endpoint
+    # - api.github.com     — user / org / team membership lookups
+    - toFQDNs:
+        - matchName: "github.com"
+        - matchName: "api.github.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # DNS resolution. rules.dns activates Cilium's L7 DNS proxy so the
+    # toFQDNs rule above can be enforced. The visibility list is
+    # restricted to the names dex actually needs to resolve; any other
+    # DNS name is dropped at the proxy, closing off DNS tunneling
+    # exfil via TXT records or label-encoded subdomains:
+    #
+    #   - github.com / api.github.com  — the only external targets
+    #   - *.cluster.local              — cluster-internal services
+    #                                    (kube-apiserver, oauth2-proxy
+    #                                    callback, etc.)
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchName: "github.com"
+              - matchName: "api.github.com"
+              - matchPattern: "*.cluster.local"

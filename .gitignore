@@ -1,0 +1,26 @@
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp.*
+
+# Bootstrap credentials — NEVER commit. The Bootstrap workflow generates an
+# instance's Age key and KSail writes the cluster's kubeconfig/talosconfig;
+# these are real secrets and must stay out of git. (Encrypted *.enc.yaml
+# secrets ARE committed and are gated by .sops.yaml — see SECURITY.md.)
+*.agekey
+*.age.key
+age.key
+key.txt
+keys.txt
+kubeconfig
+*.kubeconfig
+talosconfig
+*.talosconfig
+
+# SOPS decrypted output (transient plaintext — never commit)
+.decrypted*
+
+# Talos raw node images (transient build artifacts)
+*.raw.xz

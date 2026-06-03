@@ -1,0 +1,23 @@
+version: 2
+# Instance-owned: an instance created from this template should list
+# `.github/dependabot.yml` in `.templatesyncignore` so template-sync never
+# overwrites the ecosystems/config the instance tailors for its own stack.
+updates:
+  # Baseline ecosystems shared by the platform template and every instance.
+  # An instance that needs more ecosystems (e.g. npm, gomod, nuget for tooling)
+  # adds them here; because this file is instance-owned, those additions stick.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7

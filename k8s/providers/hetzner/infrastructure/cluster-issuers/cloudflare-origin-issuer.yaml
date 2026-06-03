@@ -1,0 +1,10 @@
+apiVersion: cert-manager.k8s.cloudflare.com/v1
+kind: ClusterOriginIssuer
+metadata:
+  name: cloudflare-origin
+spec:
+  requestType: OriginECC
+  auth:
+    tokenRef:
+      name: cloudflare-api-token
+      key: api-token

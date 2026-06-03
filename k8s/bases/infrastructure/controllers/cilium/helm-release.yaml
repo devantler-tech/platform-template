@@ -1,0 +1,194 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cilium
+  namespace: kube-system
+  labels:
+    helm.toolkit.fluxcd.io/crds: enabled
+    helm.toolkit.fluxcd.io/helm-test: enabled
+    helm.toolkit.fluxcd.io/remediation: enabled
+spec:
+  chart:
+    spec:
+      chart: cilium
+      version: 1.19.4
+      sourceRef:
+        kind: HelmRepository
+        name: cilium
+  interval: 10m0s
+  timeout: 10m
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    remediation:
+      retries: -1
+      remediateLastFailure: true
+  # https://github.com/cilium/cilium/blob/main/install/kubernetes/cilium/values.yaml
+  values:
+    securityContext:
+      capabilities:
+        ciliumAgent:
+          - CHOWN
+          - KILL
+          - NET_ADMIN
+          - NET_RAW
+          - IPC_LOCK
+          - SYS_ADMIN
+          - SYS_RESOURCE
+          - DAC_OVERRIDE
+          - FOWNER
+          - SETGID
+          - SETUID
+        cleanCiliumState:
+          - NET_ADMIN
+          - SYS_ADMIN
+          - SYS_RESOURCE
+    cgroup:
+      autoMount:
+        enabled: false
+      hostRoot: /sys/fs/cgroup
+    k8sServiceHost: localhost
+    k8sServicePort: 7445
+    hubble:
+      enabled: true
+      tls:
+        auto:
+          # Use a CronJob (instead of helm) so cert renewal does not require
+          # a Helm release upgrade.
+          method: cronJob
+      relay:
+        enabled: true
+        replicas: ${cilium_replicas:=2}
+        rollOutPods: true
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
+          # Chart defaults set maxUnavailable: 1; PDB can't have both set.
+          maxUnavailable: null
+      ui:
+        enabled: true
+        # KEDA HTTP add-on scales hubble-ui between 0 and 1 based on traffic.
+        # The replica count here is the initial value at HelmRelease apply
+        # time only — KEDA's HTTPScaledObject takes over immediately.
+        replicas: ${hubble_ui_replicas:=1}
+        rollOutPods: true
+        # PDB intentionally disabled: incompatible with scale-to-zero managed by KEDA.
+        podDisruptionBudget:
+          enabled: false
+    operator:
+      replicas: ${cilium_replicas:=2}
+      # memory 256Mi -> 128Mi: live prod usage is 36-77Mi across both
+      # replicas (2026-06-03). 128Mi keeps the operator in Burstable QoS
+      # (request > 0 -- the BestEffort escape that matters) with ~1.7x
+      # headroom over the observed peak. The operator runs on the
+      # control-plane nodes, so this frees control-plane memory requests.
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 1
+        maxUnavailable: null
+      updateStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 0
+          maxUnavailable: 1
+    clustermesh:
+      apiserver:
+        replicas: ${cilium_replicas:=2}
+    ipam:
+      mode: kubernetes
+    kubeProxyReplacement: true
+    # ------------------------------------------------------------------
+    # Resource requests for the agent DaemonSet and the standalone
+    # cilium-envoy DaemonSet. These promote the pods out of BestEffort
+    # QoS so they survive node memory pressure; an OOMKilled cilium-agent
+    # leaves BPF state degraded and the node loses ClusterIP routing
+    # (observed cascading into ~13 workload crash-loops on prod-worker-2,
+    # 2026-05-28). Limits intentionally unset — Cilium recommends against
+    # capping the agent (https://docs.cilium.io/en/stable/operations/performance/).
+    # ------------------------------------------------------------------
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+    envoy:
+      resources:
+        requests:
+          cpu: 50m
+          # memory 128Mi -> 64Mi: the standalone cilium-envoy DaemonSet uses
+          # only 17-29Mi per node in live prod (2026-06-03). 64Mi keeps it in
+          # Burstable QoS (still out of BestEffort, so it survives node memory
+          # pressure -- the protection this block exists for) with >2x headroom
+          # over peak, while freeing ~64Mi of reserved-unused request on every
+          # node (~256Mi across the workers, which sat at 98-99% memory requests).
+          memory: 64Mi
+    # Transparent WireGuard encryption for all pod-to-pod and node-to-node
+    # traffic.  KubeSpan (Talos-layer WireGuard between nodes) is not
+    # enabled in this cluster, so without this setting inter-node pod
+    # traffic would transit the Hetzner private network in cleartext.
+    # SPIRE mutual authentication below provides workload *identity*; this
+    # block provides on-the-wire *encryption*. They are independent and
+    # complementary.
+    #
+    # Requires the kernel WireGuard module (present in the Talos kernel
+    # since 5.6) and kubeProxyReplacement=true (set above).
+    # Disabled in the Docker provider overlay — local-only traffic never
+    # leaves a single Docker container.
+    encryption:
+      enabled: true
+      type: wireguard
+      nodeEncryption: true
+    authentication:
+      enabled: true
+      mutual:
+        spire:
+          enabled: true
+          install:
+            namespace: kube-system
+            existingNamespace: true
+            # Resource requests promote spire-server and spire-agent pods
+            # out of BestEffort QoS. cilium-agent's SPIRE Delegate API
+            # client relies on the per-node spire-agent admin socket — if
+            # the agent is evicted/OOMKilled the cilium-agent on that
+            # node stays stuck retrying "SPIRE admin socket does not
+            # exist" and ClusterIP routing degrades alongside it.
+            agent:
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+            # TODO: Remove workaround when SPIRE no longer fails to start (https://github.com/cilium/cilium/issues/40533)
+            server:
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+              initContainers:
+              - command:
+                - /bin/sh
+                - -c
+                - |
+                  chown -R 1000:1000 /run/spire/data
+                  chown -R 1000:1000 /tmp/spire-server
+                image: docker.io/library/busybox:1.38.0@sha256:fd8d9aa63ba2f0982b5304e1ee8d3b90a210bc1ffb5314d980eb6962f1a9715d
+                imagePullPolicy: IfNotPresent
+                name: chown
+                securityContext:
+                  runAsGroup: 0
+                  runAsUser: 0
+                volumeMounts:
+                - mountPath: /run/spire/data
+                  name: spire-data
+                - mountPath: /tmp/spire-server/private
+                  name: spire-server-socket
+              securityContext:
+                runAsGroup: 1000
+                runAsUser: 1000
+    gatewayAPI:
+      enabled: true
+      enableAlpn: true

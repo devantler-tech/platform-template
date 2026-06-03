@@ -1,0 +1,143 @@
+# Ingress firewall rules for control-plane nodes.
+# Requires NetworkDefaultActionConfig (ingress: block) from cluster/.
+#
+# Policy summary:
+#   - apid (50000) and Kubernetes API (6443): open to all (external management)
+#   - kubelet (10250), trustd (50001): cluster-internal only
+#   - etcd (2379-2380): cluster-internal only (Hetzner assigns IPs dynamically)
+#   - Cilium VXLAN (8472), WireGuard (51871), health (4240), Hubble peer (4244): cluster-internal only
+#   - NodePort range (30000-32767): cluster-internal (Hetzner Cloud LB)
+#   - Node exporter (9100): cluster-internal (Prometheus scraping)
+#
+# Cluster network CIDR: 10.0.0.0/16 (from ksail.prod.yaml networkCidr)
+#
+# Reference: https://docs.siderolabs.com/talos/v1.12/networking/ingress-firewall
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: apid-ingress
+portSelector:
+  ports:
+    - 50000
+  protocol: tcp
+ingress:
+  - subnet: 0.0.0.0/0
+  - subnet: ::/0
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: kubernetes-api-ingress
+portSelector:
+  ports:
+    - 6443
+  protocol: tcp
+ingress:
+  - subnet: 0.0.0.0/0
+  - subnet: ::/0
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: kubelet-ingress
+portSelector:
+  ports:
+    - 10250
+  protocol: tcp
+ingress:
+  # Node CIDR covers cross-node scrapes: Cilium masquerades pod->node-IP
+  # traffic to the source node IP. Same-node scrapes (a pod hitting its own
+  # node's kubelet) are NOT masqueraded, so the kubelet sees the raw pod IP
+  # and the pod CIDR must be allowed too.
+  - subnet: 10.0.0.0/16
+  - subnet: 10.244.0.0/16
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: trustd-ingress
+portSelector:
+  ports:
+    - 50001
+  protocol: tcp
+ingress:
+  - subnet: 10.0.0.0/16
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: etcd-ingress
+portSelector:
+  ports:
+    - 2379-2380
+  protocol: tcp
+ingress:
+  - subnet: 10.0.0.0/16
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: cni-vxlan-ingress
+portSelector:
+  ports:
+    - 8472
+  protocol: udp
+ingress:
+  - subnet: 10.0.0.0/16
+---
+# Cilium WireGuard transparent encryption (encryption.type: wireguard).
+# Tunnels VXLAN-encapsulated pod traffic between nodes through cilium_wg0.
+# Default port is UDP 51871; Talos's NetworkDefaultActionConfig: block
+# would otherwise drop inter-node WireGuard packets and break pod-to-pod
+# traffic the moment encryption is enabled.
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: cilium-wireguard-ingress
+portSelector:
+  ports:
+    - 51871
+  protocol: udp
+ingress:
+  - subnet: 10.0.0.0/16
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: cilium-health-ingress
+portSelector:
+  ports:
+    - 4240
+  protocol: tcp
+ingress:
+  - subnet: 10.0.0.0/16
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: hubble-peer-ingress
+portSelector:
+  ports:
+    - 4244
+  protocol: tcp
+ingress:
+  - subnet: 10.0.0.0/16
+  - subnet: 10.244.0.0/16
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: nodeport-ingress
+portSelector:
+  ports:
+    - 30000-32767
+  protocol: tcp
+ingress:
+  - subnet: 10.0.0.0/16
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: node-exporter-ingress
+portSelector:
+  ports:
+    - 9100
+  protocol: tcp
+ingress:
+  # Node CIDR covers cross-node scrapes: Cilium masquerades pod->node-IP
+  # traffic to the source node IP. Same-node scrapes (the Prometheus pod
+  # hitting the hostNetwork node-exporter on its own node) are NOT
+  # masqueraded, so node-exporter sees the raw pod IP and the pod CIDR must
+  # be allowed too.
+  - subnet: 10.0.0.0/16
+  - subnet: 10.244.0.0/16

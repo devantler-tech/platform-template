@@ -1,0 +1,151 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kyverno
+  namespace: kyverno
+  labels:
+    helm.toolkit.fluxcd.io/crds: enabled
+    helm.toolkit.fluxcd.io/helm-test: enabled
+    helm.toolkit.fluxcd.io/remediation: enabled
+spec:
+  interval: 2m
+  timeout: 15m
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    remediation:
+      retries: -1
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: kyverno
+      version: 3.8.1
+      sourceRef:
+        kind: HelmRepository
+        name: kyverno
+  # https://github.com/kyverno/kyverno/blob/main/charts/kyverno/values.yaml
+  values:
+    # Restricted PSS baseline: kyverno's mutation policies exclude the kyverno namespace,
+    # so we must set pod-level seccompProfile + runAsNonRoot via chart values.
+    admissionController:
+      replicas: ${kyverno_admission_replicas:=2}
+      podSecurityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      rbac:
+        clusterRole:
+          extraResources:
+            # The auto-vpa ClusterPolicy generates VPA objects for every
+            # Deployment / StatefulSet.  Kyverno needs RBAC on the target
+            # resource type for generate rules to work.
+            - apiGroups:
+                - autoscaling.k8s.io
+              resources:
+                - verticalpodautoscalers
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - update
+                - patch
+                - delete
+            # The add-default-deny ClusterPolicy generates CiliumNetworkPolicy
+            # objects in every namespace.
+            - apiGroups:
+                - cilium.io
+              resources:
+                - ciliumnetworkpolicies
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - update
+                - patch
+                - delete
+      updateStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 1
+          maxUnavailable: 0
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 1
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: admission-controller
+              app.kubernetes.io/instance: kyverno
+    backgroundController:
+      replicas: ${kyverno_background_replicas:=1}
+      podSecurityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      rbac:
+        clusterRole:
+          extraResources:
+            - apiGroups:
+                - autoscaling.k8s.io
+              resources:
+                - verticalpodautoscalers
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - update
+                - patch
+                - delete
+            - apiGroups:
+                - cilium.io
+              resources:
+                - ciliumnetworkpolicies
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - update
+                - patch
+                - delete
+            # disable-default-sa-automount mutates existing `default` SAs
+            # in every namespace.
+            - apiGroups:
+                - ""
+              resources:
+                - serviceaccounts
+              verbs:
+                - get
+                - list
+                - watch
+                - update
+                - patch
+    reportsController:
+      replicas: ${kyverno_reports_replicas:=1}
+      podSecurityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+    cleanupController:
+      replicas: ${kyverno_cleanup_replicas:=1}
+      podSecurityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+    crds:
+      migration:
+        # The kyverno-migrate-resources post-upgrade hook job sets seccompProfile
+        # only at the container level; our require-seccomp-profile ClusterPolicy
+        # checks pod-level securityContext, so set it here too (chart default is {})
+        # to keep the hook pod compliant and stop background-scan PolicyViolations.
+        podSecurityContext:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
