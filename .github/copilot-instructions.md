@@ -27,7 +27,7 @@ changes a convention here, it updates `AGENTS.md` too.
   (Flux wiring), `k8s/bases/` (shared infrastructure), `k8s/providers/` overlays,
   and the workflows `cd.yaml`, `release.yaml`, `template-sync.yaml`,
   `validate-scaffold.yaml`, `bootstrap.yaml`, plus `CLAUDE.md` and `zizmor.yml`.
-- **Instance-owned** files (this `AGENTS.md`, `README`, KSail configs, `.sops.yaml`,
+- **Instance-owned** files (`AGENTS.md`, `README.md`, KSail configs, `.sops.yaml`,
   Talos config, bootstrap variables, encrypted secrets) are listed in
   `.templatesyncignore`. Flag a PR that edits shared plumbing in a way an instance
   would lose on the next template-sync, or that removes an entry from
