@@ -1,0 +1,13 @@
+# EditorConfig — https://editorconfig.org
+# Shared formatting baseline for the platform scaffold. Mirrors the common base of the
+# go-template / dotnet-template siblings; platform-template is YAML/Markdown/JSON only,
+# so a 2-space, space-indent default fits every file.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
