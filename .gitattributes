@@ -1,0 +1,9 @@
+# Normalize line endings for the whole scaffold. The .editorconfig declares
+# `end_of_line = lf`, but that is only an editor hint — without this file a
+# contributor whose Git has `core.autocrlf=true` could still commit CRLF, and
+# every instance created from the template would inherit the inconsistency.
+# `* text=auto` lets Git auto-detect text vs. binary; `eol=lf` guarantees LF in
+# the repository and on checkout regardless of the contributor's platform. The
+# scaffold is YAML/JSON/Markdown only today, so this is churn-free (every tracked
+# file is already LF); `text=auto` keeps it correct if a binary asset is ever added.
+* text=auto eol=lf
