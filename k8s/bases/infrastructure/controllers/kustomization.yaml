@@ -23,6 +23,7 @@ resources:
   - openbao/
   - opencost/
   - reloader/
+  - testkube/
   - tetragon/
   - trust-manager/
   - velero/
