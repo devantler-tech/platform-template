@@ -1,0 +1,107 @@
+# TODO(#14): CoreDNS Deployment -> HelmRelease. Docker-provider only — Talos's own
+# CoreDNS is disabled via talos-local/cluster/disable-coredns.yaml (cluster.coreDNS.disabled:
+# true) so this chart owns the whole stack (Deployment + Service + ConfigMap + PDB). The
+# Service is pinned to the kube-dns name + Talos's default kube-dns ClusterIP
+# (10.96.0.10, from the 10.96.0.0/12 service subnet) so it adopts the address kubelet/
+# kube-proxy already expect, instead of Talos's bootstrapped kube-dns Service. serviceAccount
+# and rbac are NOT created by this release — Talos already bootstraps the `coredns`
+# ServiceAccount + ClusterRole/ClusterRoleBinding independently of its own CoreDNS Deployment.
+# The hetzner provider is untouched (stays on Talos-managed CoreDNS + a Corefile patch).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: coredns
+  namespace: kube-system
+  labels:
+    helm.toolkit.fluxcd.io/helm-test: enabled
+    helm.toolkit.fluxcd.io/remediation: enabled
+spec:
+  interval: 2m
+  timeout: 10m
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    remediation:
+      retries: -1
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: coredns
+      version: 1.46.0
+      sourceRef:
+        kind: HelmRepository
+        name: coredns
+  # https://github.com/coredns/helm/blob/master/charts/coredns/values.yaml
+  values:
+    replicaCount: 2
+    k8sAppLabelOverride: kube-dns
+    image:
+      repository: registry.k8s.io/coredns/coredns
+      tag: v1.14.3
+    serviceAccount:
+      create: false
+      name: coredns
+    rbac:
+      create: false
+    service:
+      name: kube-dns
+      clusterIP: 10.96.0.10
+    podDisruptionBudget:
+      minAvailable: 1
+    resources:
+      limits:
+        memory: 170Mi
+      requests:
+        cpu: 100m
+        memory: 70Mi
+    priorityClassName: system-cluster-critical
+    nodeSelector:
+      kubernetes.io/os: linux
+    tolerations:
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: k8s-app
+                    operator: In
+                    values:
+                      - kube-dns
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+    servers:
+      - zones:
+          - zone: .
+        port: 53
+        plugins:
+          - name: errors
+          - name: health
+            configBlock: |-
+              lameduck 5s
+          - name: ready
+          - name: kubernetes
+            parameters: cluster.local in-addr.arpa ip6.arpa
+            configBlock: |-
+              pods insecure
+              fallthrough in-addr.arpa ip6.arpa
+              ttl 30
+          - name: prometheus
+            parameters: :9153
+          - name: forward
+            parameters: . /etc/resolv.conf
+            configBlock: |-
+              max_concurrent 1000
+          - name: cache
+            parameters: 30
+            configBlock: |-
+              disable success cluster.local
+              disable denial cluster.local
+          - name: loop
+          - name: reload
+          - name: loadbalance
