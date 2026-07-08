@@ -1,12 +1,14 @@
 # TODO(#14): CoreDNS Deployment -> HelmRelease. Docker-provider only — Talos's own
 # CoreDNS is disabled via talos-local/cluster/disable-coredns.yaml (cluster.coreDNS.disabled:
-# true) so this chart owns the whole stack (Deployment + Service + ConfigMap + PDB). The
-# Service is pinned to the kube-dns name + Talos's default kube-dns ClusterIP
-# (10.96.0.10, from the 10.96.0.0/12 service subnet) so it adopts the address kubelet/
-# kube-proxy already expect, instead of Talos's bootstrapped kube-dns Service. serviceAccount
-# and rbac are NOT created by this release — Talos already bootstraps the `coredns`
-# ServiceAccount + ClusterRole/ClusterRoleBinding independently of its own CoreDNS Deployment.
-# The hetzner provider is untouched (stays on Talos-managed CoreDNS + a Corefile patch).
+# true) so this chart owns the whole stack (ServiceAccount + RBAC + Deployment + Service +
+# ConfigMap + PDB). `coreDNS.disabled` skips Talos's CoreDNS bootstrap entirely on a fresh
+# cluster (not just the Deployment) — verified against CodeRabbit's upstream research on
+# #62 — so serviceAccount.create/rbac.create must stay true; the chart owns its own identity
+# rather than assuming a preexisting Talos-created one. The Service is pinned to the kube-dns
+# name + Talos's default kube-dns ClusterIP (10.96.0.10, from the 10.96.0.0/12 service
+# subnet) so it adopts the address kubelet/kube-proxy already expect, instead of Talos's
+# bootstrapped kube-dns Service. The hetzner provider is untouched (stays on Talos-managed
+# CoreDNS + a Corefile patch).
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -40,10 +42,10 @@ spec:
       repository: registry.k8s.io/coredns/coredns
       tag: v1.14.3
     serviceAccount:
-      create: false
+      create: true
       name: coredns
     rbac:
-      create: false
+      create: true
     service:
       name: kube-dns
       clusterIP: 10.96.0.10
