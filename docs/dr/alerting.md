@@ -120,7 +120,7 @@ Two sources:
 ## Per-environment setup (manual SOPS steps)
 
 The Slack webhook and heartbeat URL are secrets, so they live in the
-per-cluster `secret.enc.yaml` (under `bootstrap/`) and
+per-cluster `variables-cluster-secret.enc.yaml` (under `bootstrap/`) and
 must be set by hand. Both are read from the `Secret` `variables-cluster`,
 which is a Flux `substituteFrom` source.
 

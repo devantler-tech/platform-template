@@ -24,7 +24,7 @@ contents, and Postgres data.
                        └──────────┘  └────────────────────┘
 ```
 
-Credentials are SOPS-encrypted in `secret.enc.yaml` and
+Credentials are SOPS-encrypted in `variables-base-secret.enc.yaml` and
 substituted into both the Velero and CNPG secrets at Flux apply time.
 
 ## Velero

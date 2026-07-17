@@ -12,7 +12,8 @@
 #   2. Exactly one Kubernetes resource per file (vendored upstream bundles
 #      exempt).
 #   3. Flux Kustomization CRs (kustomize.toolkit.fluxcd.io) live only in
-#      flux-kustomization*.yaml.
+#      flux-kustomization.yaml or flux-kustomization-<purpose>.yaml (the
+#      separator is required — flux-kustomizationbad.yaml fails).
 #   4. Kustomize build files (kustomize.config.k8s.io) live only in
 #      kustomization.yaml.
 #   5. In a component folder, a single-resource file's name leads with the
@@ -53,6 +54,12 @@ k8s/clusters/local/bootstrap/variables-cluster-config-map.yaml
 k8s/clusters/local/bootstrap/variables-cluster-secret.enc.yaml
 k8s/clusters/prod/bootstrap/variables-cluster-config-map.yaml
 k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml
+"
+
+# Vendored upstream dirs whose file names are synced verbatim (e.g. testkube
+# CRD dumps) — the only dirs exempt from the kebab-case stem check.
+vendored_dir_paths="
+k8s/bases/infrastructure/controllers/testkube/custom-resource-definitions
 "
 
 # CR folders: files are named <verb>-<purpose>.yaml (Kind implied by the
@@ -160,6 +167,13 @@ in_cr_subfolder() {
 	return 1
 }
 
+in_vendored() {
+	for d in ${vendored_dir_paths}; do
+		case "$1" in "${d}" | "${d}"/*) return 0 ;; esac
+	done
+	return 1
+}
+
 # --- k8s/ ---------------------------------------------------------------
 while IFS= read -r dir; do
 	is_kebab "$(basename "${dir}")" || printf '%s\n' "${dir}" >>"${tmp}/bad_dirs"
@@ -178,9 +192,10 @@ while IFS= read -r file; do
 
 	# Kebab-case applies to every k8s file stem, not just directories — the
 	# Kind-led check alone accepts any suffix after "<kind>-" (config-map-BAD
-	# would pass it). CR folders are exempt: they hold vendored upstream files
-	# whose names (e.g. testkube CRD dumps) are synced verbatim.
-	if ! in_cr "${dir}" && ! is_kebab "${stem%.enc}"; then
+	# would pass it). Only vendored dirs are exempt: most CR folders hold
+	# repository-authored manifests, and exempting them all would let
+	# cluster-role-bindings/BAD_NAME.yaml pass the gate.
+	if ! in_vendored "${dir}" && ! is_kebab "${stem%.enc}"; then
 		printf '%s\n' "${file}" >>"${tmp}/bad_dirs"
 	fi
 
@@ -222,7 +237,7 @@ ${file}
 	fi
 	if [ "${kind}" = "Kustomization" ]; then
 		case "${api}" in kustomize.toolkit.fluxcd.io*)
-			case "${fn}" in flux-kustomization*) ;; *) printf '%s\n' "${file}" >>"${tmp}/flux_bad" ;; esac
+			case "${fn}" in flux-kustomization.yaml | flux-kustomization-*.yaml) ;; *) printf '%s\n' "${file}" >>"${tmp}/flux_bad" ;; esac
 			continue
 			;;
 		esac

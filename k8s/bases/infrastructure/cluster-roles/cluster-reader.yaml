@@ -2,7 +2,8 @@
 # Most are cluster-scoped (nodes, PVs, storage, CRDs, API services, classes,
 # CSRs), but a few are namespaced — RBAC roles/rolebindings and pod metrics —
 # granted cluster-wide here for read-only diagnostics. Bound ALONGSIDE `view`
-# (see cluster-role-bindings/oidc-readonly.yaml) so an OIDC identity gets a
+# (see cluster-role-bindings/oidc-view.yaml + oidc-cluster-reader.yaml) so an
+# OIDC identity gets a
 # complete read-only picture of the cluster:
 #   - `view`           → namespaced workloads/config (pods, deployments,
 #                        configmaps, pod logs, events, ...), minus Secrets.
