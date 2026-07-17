@@ -6,7 +6,7 @@ resources:
   - cluster-issuers/
   - vault-seed/
 patches:
-  - path: gateway-patch.yaml
+  - path: patches/attach-hcloud-load-balancer.yaml
     target:
       kind: Gateway
       name: platform

@@ -1,6 +1,14 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - generators.yaml
-  - push-generated-secrets.yaml
-  - push-secrets.yaml
+  - password-dex-client-secret.yaml
+  - password-flux-web-client-secret.yaml
+  - password-oauth2-proxy-cookie-secret.yaml
+  - push-secret-dex-client-secret.yaml
+  - push-secret-flux-web-client-secret.yaml
+  - push-secret-oauth2-proxy-cookie-secret.yaml
+  - push-secret-seed-r2-credentials.yaml
+  - push-secret-seed-cloudflare.yaml
+  - push-secret-seed-alertmanager.yaml
+  - push-secret-seed-github-app.yaml
+  - push-secret-seed-velero-repo-credentials.yaml

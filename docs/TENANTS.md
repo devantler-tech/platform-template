@@ -41,7 +41,7 @@ owned-vs-synced split.
 - **Application code + `Dockerfile`** — your app, building to a container that listens
   on the port your `deploy/` manifests expose.
 - **`deploy/`** — your Kubernetes manifests (`kustomization.yaml`, `deployment.yaml`,
-  `service.yaml`, `httproute.yaml`, an optional CloudNativePG `cluster.yaml`, and —
+  `service.yaml`, `http-route.yaml`, an optional CloudNativePG `cluster.yaml`, and —
   when the app needs secrets — a namespaced `SecretStore` + `ExternalSecret` sourcing
   them from OpenBao; see §3).
   - The `HTTPRoute` attaches to the shared platform Gateway:
@@ -99,13 +99,14 @@ Add `k8s/bases/apps/<tenant>/` with:
 |---|---|
 | `kustomization.yaml` | Kustomize entrypoint listing the resources in this directory |
 | `namespace.yaml` | Namespace, `pod-security.kubernetes.io/enforce: restricted` |
-| `serviceaccount.yaml` | SA with `automountServiceAccountToken: false` + `imagePullSecrets: [ghcr-auth]` |
-| `rolebinding.yaml` | Binds the SA to the `edit` ClusterRole in the namespace |
-| `networkpolicy.yaml` | Cilium policy: ingress from the Gateway on the app port; egress DNS (+ CNPG/metrics if needed) |
-| `ghcr-auth-secret.enc.yaml` | SOPS-encrypted registry pull secret (`ghcr-auth`) |
-| `sync.yaml` | `OCIRepository` (semver `>=1.0.0`, cosign `verify`) + `Kustomization` (prune, `serviceAccountName: <tenant>`) |
+| `service-account.yaml` | SA with `automountServiceAccountToken: false` + `imagePullSecrets: [ghcr-auth]` |
+| `role-binding.yaml` | Binds the SA to the `edit` ClusterRole in the namespace |
+| `cilium-network-policy.yaml` | Cilium policy: ingress from the Gateway on the app port; egress DNS (+ CNPG/metrics if needed) |
+| `secret-ghcr-auth.enc.yaml` | SOPS-encrypted registry pull secret (`ghcr-auth`) |
+| `oci-repository.yaml` | `OCIRepository` (semver `>=1.0.0`, cosign `verify`) |
+| `flux-kustomization.yaml` | Flux `Kustomization` (prune, `serviceAccountName: <tenant>`) |
 
-In `sync.yaml`, set the `name`/`namespace`/`url`
+In `oci-repository.yaml`, set the `name`/`namespace`/`url`
 (`oci://ghcr.io/<owner>/<tenant>/manifests`) and keep the `verify` block pointing at
 `publish-app.yaml`. No Flux `spec.decryption` is needed — tenant secrets are delivered
 by External Secrets from OpenBao (§3), not SOPS-encrypted inside the artifact.

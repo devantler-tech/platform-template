@@ -6,36 +6,36 @@ resources:
   - coredns/
   - flux-instance/
   - minio/
-  - local-path-storage-namespace.yaml
-  - local-path-storage-networkpolicy.yaml
+  - namespace-local-path-storage.yaml
+  - cilium-network-policy-local-path-storage.yaml
 patches:
   - target:
       kind: HelmRelease
       name: cilium
       namespace: kube-system
-    path: cilium/patches/helm-release-patch.yaml
+    path: cilium/patches/disable-encryption-and-mutual-auth.yaml
   - target:
       kind: HelmRelease
       name: metrics-server
       namespace: kube-system
-    path: metrics-server/patches/helm-release-patch.yaml
+    path: metrics-server/patches/allow-insecure-kubelet-tls.yaml
   - target:
       kind: HelmRelease
       name: flux-operator
       namespace: flux-system
-    path: flux-operator/patches/helm-release-patch.yaml
+    path: flux-operator/patches/trust-platform-ca.yaml
   - target:
       kind: HelmRelease
       name: kubescape
       namespace: kubescape
-    path: kubescape/patches/helm-release-patch.yaml
+    path: kubescape/patches/disable-heavy-capabilities.yaml
   - target:
       kind: HelmRelease
       name: tetragon
       namespace: kube-system
-    path: tetragon/patches/helm-release-patch.yaml
+    path: tetragon/patches/disable-helm-wait.yaml
   - target:
       kind: KubeVirt
       name: kubevirt
       namespace: kubevirt
-    path: kubevirt/patches/kubevirt-cr-patch.yaml
+    path: kubevirt/patches/enable-software-emulation.yaml

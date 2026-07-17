@@ -42,7 +42,6 @@ resources:
   - longhorn/
   - origin-ca-issuer/
 patches:
-  - path: flux-operator/patches/helm-release-patch.yaml
-  - path: openbao/patches/helm-release-patch.yaml
-  - path: kube-prometheus-stack/patches/helm-release-patch.yaml
-  - path: loki/patches/helm-release-patch.yaml
+  - path: openbao/patches/store-data-on-hcloud.yaml
+  - path: kube-prometheus-stack/patches/store-tsdb-on-hcloud.yaml
+  - path: loki/patches/store-logs-on-hcloud.yaml

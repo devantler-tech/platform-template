@@ -1,0 +1,9 @@
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: cilium-health-ingress
+portSelector:
+  ports:
+    - 4240
+  protocol: tcp
+ingress:
+  - subnet: 10.0.0.0/16

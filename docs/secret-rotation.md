@@ -74,7 +74,8 @@ preferring OpenBao-native mechanisms.
   No Database secrets engine is enabled by default.
 - **Two sourcing paths coexist (mid-migration):**
   - **OpenBao → ESO**: generators
-    ([`k8s/bases/infrastructure/vault-seed/generators.yaml`](../k8s/bases/infrastructure/vault-seed))
+    (the `password-*.yaml` manifests in
+    [`k8s/bases/infrastructure/vault-seed/`](../k8s/bases/infrastructure/vault-seed))
     seed OpenBao KV once; `ExternalSecret`s sync to consumer namespaces (1 h refresh).
     Used by app DB/cache credentials, OIDC client secrets for the demo apps, the
     Cloudflare token, the R2 credentials, and the Alertmanager URLs.

@@ -1,0 +1,23 @@
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: alertmanager-webhook
+  namespace: monitoring
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao
+    kind: ClusterSecretStore
+  target:
+    name: alertmanager-webhook
+    creationPolicy: Owner
+  data:
+    # Slack incoming-webhook URL for normal alert notifications. The
+    # Watchdog heartbeat URL is injected via Flux substitution
+    # (${alertmanager_heartbeat_url}) rather than here, so an unset value
+    # degrades to an invalid URL instead of failing this ExternalSecret.
+    - secretKey: webhook_url
+      remoteRef:
+        key: infrastructure/monitoring/alertmanager
+        property: webhook_url

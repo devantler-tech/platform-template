@@ -11,7 +11,7 @@ resources:
   - external-secrets/
   - gateway/
   - http-scaled-objects/
-  - security-exceptions/
+  - cluster-security-exceptions/
   - tracing-policies/
   - vault-config/
   - vault-backup/

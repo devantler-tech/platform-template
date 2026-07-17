@@ -1,0 +1,10 @@
+---
+apiVersion: v1alpha1
+kind: VolumeConfig
+name: EPHEMERAL
+encryption:
+  provider: luks2
+  keys:
+    - nodeID: {}
+      slot: 0
+      lockToState: true

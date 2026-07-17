@@ -5,7 +5,7 @@ resources:
   - namespace.yaml
   - helm-release.yaml
   - helm-repository.yaml
-  - httproute.yaml
+  - http-route.yaml
   - reference-grant.yaml
-  - networkpolicy.yaml
-  - networkpolicy-default-deny.yaml
+  - cilium-network-policy.yaml
+  - cilium-network-policy-default-deny.yaml

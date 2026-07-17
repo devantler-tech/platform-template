@@ -10,4 +10,4 @@ patches:
       kind: HelmRelease
       name: headlamp
       namespace: headlamp
-    path: headlamp/patches/helm-release-patch.yaml
+    path: headlamp/patches/trust-platform-ca.yaml
