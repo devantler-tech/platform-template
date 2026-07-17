@@ -46,15 +46,18 @@ k8s/bases/infrastructure/controllers/kubevirt/kubevirt-operator.yaml
 # patterns). Renaming these to the Kind-led convention would make template-sync
 # inject template-default values over an instance's tailored production config
 # (the ignore patterns would no longer match), so they keep their names and are
-# exempt from the Kind-led filename check.
-instance_owned_exempt="
-k8s/bases/bootstrap/variables-base-config-map.yaml
-k8s/bases/bootstrap/variables-base-secret.enc.yaml
-k8s/clusters/local/bootstrap/variables-cluster-config-map.yaml
-k8s/clusters/local/bootstrap/variables-cluster-secret.enc.yaml
-k8s/clusters/prod/bootstrap/variables-cluster-config-map.yaml
-k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml
-"
+# exempt from the Kind-led filename check. Cluster overlays match by GLOB so an
+# instance that adds environments (clusters/staging/, …) inherits the
+# exemption for exactly these two filenames and nothing else.
+is_instance_owned() {
+	case "$1" in
+	k8s/bases/bootstrap/variables-base-config-map.yaml | \
+		k8s/bases/bootstrap/variables-base-secret.enc.yaml | \
+		k8s/clusters/*/bootstrap/variables-cluster-config-map.yaml | \
+		k8s/clusters/*/bootstrap/variables-cluster-secret.enc.yaml) return 0 ;;
+	esac
+	return 1
+}
 
 # Vendored upstream dirs whose file names are synced verbatim (e.g. testkube
 # CRD dumps) — the only dirs exempt from the kebab-case stem check.
@@ -127,12 +130,24 @@ pluralize() {
 # Emit "NDOCS <n>" (documents with non-comment content) then one
 # "DOC <apiVersion>|<kind>" line per top-level kind-bearing document.
 parse_docs() {
-	awk '
+	awk -v sq=\' '
 		# chunk MUST start numeric: uninitialized awk variables are "" as an
 		# array subscript, so a file with no leading --- would store under
 		# content[""] while the END loop reads content[0] — silently skipping
 		# every such file (a false-negative gate).
 		BEGIN { chunk = 0 }
+		# YAML scalars may carry an inline comment and single/double quotes
+		# ("kind: \"ConfigMap\" # core"). Keeping either in the extracted Kind
+		# made the filename check reject correctly named files.
+		function clean(v,	f, l) {
+			sub(/[ \t]+#.*$/, "", v); sub(/[ \t]+$/, "", v)
+			if (length(v) >= 2) {
+				f = substr(v, 1, 1); l = substr(v, length(v), 1)
+				if ((f == "\"" && l == "\"") || (f == sq && l == sq))
+					v = substr(v, 2, length(v) - 2)
+			}
+			return v
+		}
 		# A separator may carry a trailing comment ("--- # second resource") —
 		# still a document boundary. Requiring end-of-line after "---" merged
 		# such documents into one chunk, letting a two-resource file pass the
@@ -142,10 +157,10 @@ parse_docs() {
 			line = $0; sub(/\r$/, "", line)
 			if (line !~ /^[ \t]*#/ && line !~ /^[ \t]*$/) content[chunk] = 1
 			if (line ~ /^kind:[ \t]*[^ \t]/) {
-				k = line; sub(/^kind:[ \t]*/, "", k); sub(/[ \t]+$/, "", k); kind[chunk] = k
+				k = line; sub(/^kind:[ \t]*/, "", k); kind[chunk] = clean(k)
 			}
 			if (line ~ /^apiVersion:[ \t]*[^ \t]/) {
-				a = line; sub(/^apiVersion:[ \t]*/, "", a); sub(/[ \t]+$/, "", a); api[chunk] = a
+				a = line; sub(/^apiVersion:[ \t]*/, "", a); api[chunk] = clean(a)
 			}
 		}
 		END {
@@ -257,9 +272,9 @@ ${file}
 	if [ "${fn}" = "kustomization.yaml" ] || in_cr "${dir}"; then
 		continue
 	fi
-	case "${instance_owned_exempt}" in *"
-${file}
-"*) continue ;; esac
+	if is_instance_owned "${file}"; then
+		continue
+	fi
 	kb="$(kebab_kind "${kind}")"
 	if [ "${in_patch}" = 1 ]; then
 		case "${stem}" in "${kb}" | "${kb}"-*)

@@ -54,8 +54,11 @@ jobs:
     # Kind-led filenames, CR-folder plurals, patch/talos intent naming, and
     # flux-kustomization disambiguation — the reference platform's conventions
     # (platform#2315), ported to bash. No cluster, no secrets, no network, so
-    # it also runs on fork PRs and returns in seconds.
-    if: github.event_name == 'pull_request' && needs.changes.outputs.k8s == 'true'
+    # it also runs on fork PRs and returns in seconds. Template-repo-only:
+    # instances run the gate via the template-synced validate-naming.yaml
+    # (their ci.yaml is instance-owned), so without this guard every instance
+    # k8s PR would run the same script twice.
+    if: github.repository == 'devantler-tech/platform-template' && github.event_name == 'pull_request' && needs.changes.outputs.k8s == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read # checkout repository
