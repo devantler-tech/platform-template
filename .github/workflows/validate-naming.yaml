@@ -1,0 +1,33 @@
+name: 🏷️ Validate Naming Conventions
+
+# Instance-side delivery of the naming gate. The template repo runs the gate as
+# a REQUIRED job inside ci.yaml — but ci.yaml is instance-owned
+# (.templatesyncignore), so template-sync never delivers that job downstream.
+# This standalone workflow IS template-synced, so every instance keeps running
+# the gate as its ci.yaml diverges. It is skipped in the template repo itself
+# to avoid duplicating the required ci.yaml job there.
+
+on:
+  pull_request:
+    paths:
+      - "k8s/**"
+      - "talos*/**"
+      - "scripts/validate-naming.sh"
+      - ".github/workflows/validate-naming.yaml"
+
+permissions: {}
+
+jobs:
+  validate-naming:
+    name: 🏷️ Validate Naming Conventions
+    if: github.repository != 'devantler-tech/platform-template'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: 🏷️ Validate naming conventions
+        run: ./scripts/validate-naming.sh

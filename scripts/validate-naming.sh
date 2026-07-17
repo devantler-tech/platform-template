@@ -133,7 +133,11 @@ parse_docs() {
 		# content[""] while the END loop reads content[0] — silently skipping
 		# every such file (a false-negative gate).
 		BEGIN { chunk = 0 }
-		/^---[ \t]*$/ { chunk++; next }
+		# A separator may carry a trailing comment ("--- # second resource") —
+		# still a document boundary. Requiring end-of-line after "---" merged
+		# such documents into one chunk, letting a two-resource file pass the
+		# one-per-file gate (the later kind overwrote the earlier).
+		/^---([ \t].*)?$/ { chunk++; next }
 		{
 			line = $0; sub(/\r$/, "", line)
 			if (line !~ /^[ \t]*#/ && line !~ /^[ \t]*$/) content[chunk] = 1
