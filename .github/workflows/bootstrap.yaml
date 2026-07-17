@@ -150,7 +150,7 @@ jobs:
             .data.r2_endpoint = strenv(R2_ENDPOINT) |
             .data.cloudflare_zone = strenv(CLOUDFLARE_ZONE) |
             .data.r2_bucket = strenv(BUCKET)
-          ' k8s/bases/bootstrap/config-map.yaml
+          ' k8s/bases/bootstrap/variables-base-config-map.yaml
 
           # --- variables-cluster (prod) ---
           yq -i '
@@ -158,13 +158,13 @@ jobs:
             .data.domain_regex = strenv(DOMAIN_REGEX) |
             .data.github_app_client_id = strenv(GITHUB_APP_CLIENT_ID) |
             .data.admin_email = strenv(ADMIN_EMAIL)
-          ' k8s/clusters/prod/bootstrap/config-map.yaml
+          ' k8s/clusters/prod/bootstrap/variables-cluster-config-map.yaml
 
           # --- variables-cluster (local — keeps platform.lan, just identity) ---
           yq -i "
             .data.github_app_client_id = strenv(GITHUB_APP_CLIENT_ID) |
             .data.admin_email = strenv(ADMIN_EMAIL)
-          " k8s/clusters/local/bootstrap/config-map.yaml
+          " k8s/clusters/local/bootstrap/variables-cluster-config-map.yaml
 
           # --- ksail.prod.yaml: registry + Hetzner location ---
           sed -i "s|REPLACE_OWNER|${OWNER}|g; s|REPLACE_REPO|${REPO}|g" ksail.prod.yaml
@@ -201,7 +201,7 @@ jobs:
               .stringData.r2_secret_access_key = strenv(R2_SECRET_ACCESS_KEY)
             ' "$1"
           }
-          fill_base k8s/bases/bootstrap/secret.enc.yaml
+          fill_base k8s/bases/bootstrap/variables-base-secret.enc.yaml
 
           # prod cluster secret
           yq -i '
@@ -214,7 +214,7 @@ jobs:
             .stringData.hcloud_token = strenv(HCLOUD_TOKEN) |
             .stringData.r2_access_key_id = strenv(R2_ACCESS_KEY_ID) |
             .stringData.r2_secret_access_key = strenv(R2_SECRET_ACCESS_KEY)
-          ' k8s/clusters/prod/bootstrap/secret.enc.yaml
+          ' k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml
 
           # local cluster secret
           yq -i '
@@ -225,13 +225,13 @@ jobs:
             .stringData.github_app_client_secret = strenv(GITHUB_APP_CLIENT_SECRET) |
             .stringData.r2_access_key_id = strenv(R2_ACCESS_KEY_ID) |
             .stringData.r2_secret_access_key = strenv(R2_SECRET_ACCESS_KEY)
-          ' k8s/clusters/local/bootstrap/secret.enc.yaml
+          ' k8s/clusters/local/bootstrap/variables-cluster-secret.enc.yaml
 
           # Encrypt in place with the instance's Age key (now in .sops.yaml).
           for f in \
-            k8s/bases/bootstrap/secret.enc.yaml \
-            k8s/clusters/prod/bootstrap/secret.enc.yaml \
-            k8s/clusters/local/bootstrap/secret.enc.yaml; do
+            k8s/bases/bootstrap/variables-base-secret.enc.yaml \
+            k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml \
+            k8s/clusters/local/bootstrap/variables-cluster-secret.enc.yaml; do
             sops -e -i "$f"
           done
 

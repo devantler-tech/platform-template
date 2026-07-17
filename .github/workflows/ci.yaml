@@ -41,8 +41,9 @@ jobs:
               - 'ksail.yaml'
               - 'ksail.prod.yaml'
               - '.sops.yaml'
-              - 'talos-local/**'
-              - 'talos/**'
+              # talos*/ — the naming gate scans every root-level talos*/
+              # directory, and instances add environments as talos-<env>/.
+              - 'talos*/**'
               - '.github/workflows/ci.yaml'
               - 'scripts/validate-naming.sh'
 

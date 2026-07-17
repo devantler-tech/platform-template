@@ -126,7 +126,9 @@ same-repo (non-fork) PRs; let CI run it, do not attempt it locally.
 Manifest naming follows the reference platform's conventions (platform#2315),
 enforced by `./scripts/validate-naming.sh` (a CI gate on every `k8s/**` PR):
 
-- **Kebab-case** directories and file stems everywhere under `k8s/` and `talos*/`.
+- **Kebab-case** directories and file stems everywhere under `k8s/` and `talos*/`
+  (vendored upstream files inside CR folders — e.g. the testkube CRD dumps —
+  keep their upstream names).
 - **One Kubernetes resource per file** (vendored upstream operator bundles exempt).
 - **Filenames lead with the kebab-cased Kind**: `<kind>.yaml` or
   `<kind>-<purpose>.yaml` (e.g. `cilium-network-policy.yaml`, `http-route.yaml`,
@@ -142,6 +144,10 @@ enforced by `./scripts/validate-naming.sh` (a CI gate on every `k8s/**` PR):
   `-patch` suffix and never led by the patched Kind.
 - **Talos machine-config patches** (`talos*/`) hold one YAML document per file,
   named by intent (`encrypt-state-partition.yaml`, `allow-apid-ingress.yaml`).
+- **Instance-owned bootstrap variable files keep their `variables-*` names** —
+  they match `.templatesyncignore` patterns, and renaming them would make
+  template-sync overwrite an instance's tailored values with template defaults
+  (the gate carries an explicit exemption list for them).
 
 Run the gate locally before any manifest PR: `./scripts/validate-naming.sh`.
 

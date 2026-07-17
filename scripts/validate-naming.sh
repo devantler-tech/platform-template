@@ -41,6 +41,20 @@ k8s/bases/infrastructure/controllers/cdi/cdi-operator.yaml
 k8s/bases/infrastructure/controllers/kubevirt/kubevirt-operator.yaml
 "
 
+# Instance-owned bootstrap variable files (.templatesyncignore's variables-*
+# patterns). Renaming these to the Kind-led convention would make template-sync
+# inject template-default values over an instance's tailored production config
+# (the ignore patterns would no longer match), so they keep their names and are
+# exempt from the Kind-led filename check.
+instance_owned_exempt="
+k8s/bases/bootstrap/variables-base-config-map.yaml
+k8s/bases/bootstrap/variables-base-secret.enc.yaml
+k8s/clusters/local/bootstrap/variables-cluster-config-map.yaml
+k8s/clusters/local/bootstrap/variables-cluster-secret.enc.yaml
+k8s/clusters/prod/bootstrap/variables-cluster-config-map.yaml
+k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml
+"
+
 # CR folders: files are named <verb>-<purpose>.yaml (Kind implied by the
 # folder). Extend this list when introducing a new plural-Kind folder.
 cr_dir_paths="
@@ -162,6 +176,14 @@ while IFS= read -r file; do
 	dir="$(dirname "${file}")"
 	case "${file}" in */patches/*) in_patch=1 ;; *) in_patch=0 ;; esac
 
+	# Kebab-case applies to every k8s file stem, not just directories — the
+	# Kind-led check alone accepts any suffix after "<kind>-" (config-map-BAD
+	# would pass it). CR folders are exempt: they hold vendored upstream files
+	# whose names (e.g. testkube CRD dumps) are synced verbatim.
+	if ! in_cr "${dir}" && ! is_kebab "${stem%.enc}"; then
+		printf '%s\n' "${file}" >>"${tmp}/bad_dirs"
+	fi
+
 	case "${stem}" in *-patch)
 		if [ "${in_patch}" = 1 ]; then
 			printf '%s\n' "${file}" >>"${tmp}/patch_suffix"
@@ -173,7 +195,16 @@ while IFS= read -r file; do
 
 	parsed="$(parse_docs "${file}")"
 	kind_docs="$(printf '%s\n' "${parsed}" | grep -c '^DOC ')" || true
-	[ "${kind_docs}" = 0 ] && continue # JSON6902 fragment / non-resource
+	if [ "${kind_docs}" = 0 ]; then
+		# Kind-less content (a JSON6902 fragment) is still a patch: it must
+		# live under patches/ — skipping it entirely would let a fragment
+		# named by intent sit anywhere and pass the gate.
+		ndocs="$(printf '%s\n' "${parsed}" | sed -n 's/^NDOCS //p')"
+		if [ "${ndocs}" -gt 0 ] && [ "${in_patch}" = 0 ] && [ "${fn}" != "kustomization.yaml" ]; then
+			printf '%s\n' "${file}" >>"${tmp}/patch_misplaced"
+		fi
+		continue
+	fi
 	if [ "${kind_docs}" -gt 1 ]; then
 		case "${one_resource_exempt}" in *"
 ${file}
@@ -207,6 +238,9 @@ ${file}
 	if [ "${fn}" = "kustomization.yaml" ] || in_cr "${dir}"; then
 		continue
 	fi
+	case "${instance_owned_exempt}" in *"
+${file}
+"*) continue ;; esac
 	kb="$(kebab_kind "${kind}")"
 	if [ "${in_patch}" = 1 ]; then
 		case "${stem}" in "${kb}" | "${kb}"-*)
