@@ -78,16 +78,16 @@ point ksail at it” (see [Adding a new environment](#adding-a-new-environment))
 Each [`k8s/clusters/<env>/bootstrap/`](../k8s/clusters) directory holds the only
 resources Flux reads that are genuinely per-cluster:
 
-- `variables-cluster-config-map.yaml` — non-secret values (hostnames, URLs, issuer,
+- `config-map.yaml` — non-secret values (hostnames, URLs, issuer,
   replica counts, Hetzner LB location/type, Longhorn settings, etc.). Bootstrap fills
   `domain`, `domain_regex`, `github_app_client_id`, and `admin_email` from your
   Variables; the rest are sensible defaults you can tune.
-- `variables-cluster-secret.enc.yaml` — SOPS-encrypted secrets (Alertmanager URLs,
+- `secret.enc.yaml` — SOPS-encrypted secrets (Alertmanager URLs,
   the OIDC/cookie secrets, the GitHub SSO client secret, the Hetzner/R2 tokens).
   Bootstrap fills these from your Secrets and `sops -e` encrypts them.
 
 There is also a shared [`k8s/bases/bootstrap/`](../k8s/bases/bootstrap) layer
-(`variables-base-config-map.yaml` + `variables-base-secret.enc.yaml`) for values
+(`config-map.yaml` + `secret.enc.yaml`) for values
 common to all clusters (Cloudflare account/zone, R2 endpoint/bucket and credentials).
 
 **To change a non-secret value after bootstrap:** edit the ConfigMap and let Flux
@@ -96,7 +96,7 @@ set, and re-encrypts), then commit:
 
 ```bash
 sops --set '["stringData"]["alertmanager_webhook_url"] "https://hooks.example.com/…"' \
-  k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml
+  k8s/clusters/prod/bootstrap/secret.enc.yaml
 ```
 
 ### 5. SOPS configuration

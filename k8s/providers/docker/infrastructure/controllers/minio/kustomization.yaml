@@ -3,4 +3,6 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - deployment.yaml
-  - networkpolicy.yaml
+  - service.yaml
+  - job-create-bucket.yaml
+  - cilium-network-policy.yaml

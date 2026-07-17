@@ -1,0 +1,35 @@
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/name: Alertmanager
+    gethomepage.dev/description: Active alerts, silences and routing.
+    gethomepage.dev/group: Observability
+    gethomepage.dev/icon: alertmanager.png
+spec:
+  parentRefs:
+    - name: platform
+      namespace: kube-system
+      sectionName: https
+  hostnames:
+    - alertmanager.${domain}
+  rules:
+    - filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set:
+              - name: X-Auth-Request-Redirect
+                value: https://alertmanager.${domain}/
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Strict-Transport-Security
+                value: max-age=63072000; includeSubDomains; preload
+      backendRefs:
+        - name: oauth2-proxy
+          namespace: oauth2-proxy
+          port: 80

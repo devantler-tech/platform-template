@@ -3,4 +3,4 @@ kind: Kustomization
 resources:
   - ../../../../../bases/infrastructure/controllers/coredns/
 patches:
-  - path: patches/corefile-config-map-patch.yaml
+  - path: patches/override-corefile.yaml

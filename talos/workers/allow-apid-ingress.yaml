@@ -1,0 +1,10 @@
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: apid-ingress
+portSelector:
+  ports:
+    - 50000
+  protocol: tcp
+ingress:
+  - subnet: 0.0.0.0/0
+  - subnet: ::/0

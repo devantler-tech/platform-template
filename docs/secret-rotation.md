@@ -80,7 +80,7 @@ preferring OpenBao-native mechanisms.
     Cloudflare token, the R2 credentials, and the Alertmanager URLs.
   - **SOPS → Flux postBuild substitution**: `${dex_client_secret}`,
     `${flux_web_client_secret}`, `${oauth2_proxy_cookie_secret}` etc. are still read
-    from `k8s/clusters/*/bootstrap/variables-cluster-secret.enc.yaml`. **Dex (the OIDC
+    from `k8s/clusters/*/bootstrap/secret.enc.yaml`. **Dex (the OIDC
     provider) and oauth2-proxy read from here, not OpenBao.**
 
 ### Why a non-zero `refreshInterval` does **not** rotate generators

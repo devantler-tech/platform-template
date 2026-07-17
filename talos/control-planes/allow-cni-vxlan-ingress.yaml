@@ -1,0 +1,9 @@
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: cni-vxlan-ingress
+portSelector:
+  ports:
+    - 8472
+  protocol: udp
+ingress:
+  - subnet: 10.0.0.0/16

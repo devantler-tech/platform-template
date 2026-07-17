@@ -121,6 +121,30 @@ kubectl apply --dry-run=client -f <file>   # single-manifest YAML/schema check
 Talos + Docker system test runs in CI (`validate-scaffold.yaml` / `ci.yaml`) on
 same-repo (non-fork) PRs; let CI run it, do not attempt it locally.
 
+### File and directory naming conventions
+
+Manifest naming follows the reference platform's conventions (platform#2315),
+enforced by `./scripts/validate-naming.sh` (a CI gate on every `k8s/**` PR):
+
+- **Kebab-case** directories and file stems everywhere under `k8s/` and `talos*/`.
+- **One Kubernetes resource per file** (vendored upstream operator bundles exempt).
+- **Filenames lead with the kebab-cased Kind**: `<kind>.yaml` or
+  `<kind>-<purpose>.yaml` (e.g. `cilium-network-policy.yaml`, `http-route.yaml`,
+  `config-map-corefile.yaml`).
+- **Flux Kustomization CRs** live in `flux-kustomization-<purpose>.yaml`; kustomize
+  build files are always `kustomization.yaml`.
+- **CR folders** (a folder grouping instances of one non-workload Kind) are named
+  the Kind's kebab-case plural (`cluster-security-exceptions/`, `external-secrets/`)
+  and their files are named by intent, not Kind — the folder already says the Kind.
+  New plural-Kind folders are registered in the gate's `cr_dir_paths` list.
+- **Patch fragments** live under a `patches/` directory, named by intent as
+  `<verb>-<purpose>.yaml` (`store-data-on-hcloud.yaml`) — never a redundant
+  `-patch` suffix and never led by the patched Kind.
+- **Talos machine-config patches** (`talos*/`) hold one YAML document per file,
+  named by intent (`encrypt-state-partition.yaml`, `allow-apid-ingress.yaml`).
+
+Run the gate locally before any manifest PR: `./scripts/validate-naming.sh`.
+
 ## Maintenance (autonomous AI assistant)
 
 These conventions guide the autonomous **Daily AI Assistant** — and any agentic

@@ -44,6 +44,33 @@ jobs:
               - 'talos-local/**'
               - 'talos/**'
               - '.github/workflows/ci.yaml'
+              - 'scripts/validate-naming.sh'
+
+  validate-naming:
+    name: 🏷️ Validate Naming Conventions
+    needs: [changes]
+    # Static folder/file naming gate: kebab-case dirs, one-resource-per-file,
+    # Kind-led filenames, CR-folder plurals, patch/talos intent naming, and
+    # flux-kustomization disambiguation — the reference platform's conventions
+    # (platform#2315), ported to bash. No cluster, no secrets, no network, so
+    # it also runs on fork PRs and returns in seconds.
+    if: github.event_name == 'pull_request' && needs.changes.outputs.k8s == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout repository
+    steps:
+      - name: 🛡️ Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: 📑 Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: 🏷️ Validate naming conventions
+        run: ./scripts/validate-naming.sh
 
   system-test:
     name: 🧪 System Test
@@ -305,7 +332,7 @@ jobs:
   ci-required-checks:
     name: CI - Required Checks
     runs-on: ubuntu-latest
-    needs: [changes, system-test, deploy-prod]
+    needs: [changes, validate-naming, system-test, deploy-prod]
     if: always()
     permissions: {}
     steps:
@@ -314,5 +341,6 @@ jobs:
         with:
           job-results: >-
             ${{ needs.changes.result }}
+            ${{ needs.validate-naming.result }}
             ${{ needs.system-test.result }}
             ${{ needs.deploy-prod.result }}

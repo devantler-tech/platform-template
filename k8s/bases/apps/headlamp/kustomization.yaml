@@ -3,9 +3,9 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - external-secret.yaml
-  - pvc.yaml
+  - persistent-volume-claim.yaml
   - helm-release.yaml
   - helm-repository.yaml
-  - httproute.yaml
+  - http-route.yaml
   - http-scaled-object.yaml
-  - networkpolicy.yaml
+  - cilium-network-policy.yaml

@@ -1,3 +1,4 @@
+---
 # Encrypt STATE and EPHEMERAL partitions with nodeID-derived keys (LUKS2).
 #
 # nodeID uses the Hetzner VM UUID to derive the encryption key, protecting
@@ -20,13 +21,3 @@ encryption:
   keys:
     - nodeID: {}
       slot: 0
----
-apiVersion: v1alpha1
-kind: VolumeConfig
-name: EPHEMERAL
-encryption:
-  provider: luks2
-  keys:
-    - nodeID: {}
-      slot: 0
-      lockToState: true
