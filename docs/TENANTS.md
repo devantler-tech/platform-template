@@ -81,7 +81,7 @@ Tenant app secrets come from **OpenBao** via **External Secrets** — not SOPS.
 ## 4. How publishing & trust fit together
 
 On every `v*` tag, the tenant’s `cd.yaml` calls the
-[`publish-app.yaml`](https://github.com/devantler-tech/reusable-workflows/blob/main/.github/workflows/publish-app.yaml)
+[`publish-app.yaml`](https://github.com/devantler-tech/actions/blob/main/.github/workflows/publish-app.yaml)
 reusable workflow, which builds and pushes the image, pins its digest into
 `deploy/deployment.yaml`, pushes the manifests as an OCI artifact, and
 **cosign-signs** both (keyless, via GitHub OIDC). The platform’s `OCIRepository` (§5)
