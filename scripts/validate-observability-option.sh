@@ -59,6 +59,30 @@ assert_resource_count() {
   fi
 }
 
+flux_path() {
+  local rendered_path="$1"
+  local name="$2"
+
+  yq eval-all -o=json '.' "${rendered_path}" |
+    jq -s -r \
+      --arg name "${name}" \
+      '[.[] | select(type == "object" and .kind == "Kustomization" and .metadata.namespace == "flux-system" and .metadata.name == $name)] |
+       if length == 1 then .[0].spec.path else "invalid-count:\(length)" end'
+}
+
+assert_flux_path() {
+  local rendered_path="$1"
+  local name="$2"
+  local expected="$3"
+  local actual
+
+  actual="$(flux_path "${rendered_path}" "${name}")"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "expected Flux Kustomization/${name} path ${expected} in ${rendered_path}, found ${actual}" >&2
+    return 1
+  fi
+}
+
 assert_default_off() {
   local rendered_path="$1"
 
@@ -125,12 +149,42 @@ local_controllers_default="${tmp_dir}/local-controllers-default.yaml"
 local_infrastructure_default="${tmp_dir}/local-infrastructure-default.yaml"
 prod_controllers_default="${tmp_dir}/prod-controllers-default.yaml"
 prod_infrastructure_default="${tmp_dir}/prod-infrastructure-default.yaml"
+local_cluster_default="${tmp_dir}/local-cluster-default.yaml"
+prod_cluster_default="${tmp_dir}/prod-cluster-default.yaml"
+local_cluster_coroot="${tmp_dir}/local-cluster-coroot.yaml"
+prod_cluster_coroot="${tmp_dir}/prod-cluster-coroot.yaml"
 docker_controllers="${tmp_dir}/docker-controllers.yaml"
 docker_infrastructure="${tmp_dir}/docker-infrastructure.yaml"
 hetzner_controllers="${tmp_dir}/hetzner-controllers.yaml"
 hetzner_infrastructure="${tmp_dir}/hetzner-infrastructure.yaml"
 coroot_api_expression="\${env:COROOT_API_KEY}"
 node_name_expression="\${env:K8S_NODE_NAME}"
+
+# The supported selection surface is an alternate cluster path. Existing
+# instance-owned KSail configs keep the default cluster paths until an operator
+# explicitly opts in.
+render k8s/clusters/local/ "${local_cluster_default}"
+render k8s/clusters/prod/ "${prod_cluster_default}"
+render k8s/clusters/local-coroot/ "${local_cluster_coroot}"
+render k8s/clusters/prod-coroot/ "${prod_cluster_coroot}"
+
+assert_flux_path "${local_cluster_default}" bootstrap clusters/local/bootstrap
+assert_flux_path "${local_cluster_default}" infrastructure-controllers providers/docker/infrastructure/controllers
+assert_flux_path "${local_cluster_default}" infrastructure providers/docker/infrastructure
+assert_flux_path "${local_cluster_default}" apps providers/docker/apps
+assert_flux_path "${prod_cluster_default}" bootstrap clusters/prod/bootstrap
+assert_flux_path "${prod_cluster_default}" infrastructure-controllers providers/hetzner/infrastructure/controllers
+assert_flux_path "${prod_cluster_default}" infrastructure providers/hetzner/infrastructure
+assert_flux_path "${prod_cluster_default}" apps providers/hetzner/apps
+
+assert_flux_path "${local_cluster_coroot}" bootstrap clusters/local/bootstrap
+assert_flux_path "${local_cluster_coroot}" infrastructure-controllers providers/docker/infrastructure-controllers-coroot
+assert_flux_path "${local_cluster_coroot}" infrastructure providers/docker/infrastructure-coroot
+assert_flux_path "${local_cluster_coroot}" apps providers/docker/apps
+assert_flux_path "${prod_cluster_coroot}" bootstrap clusters/prod/bootstrap
+assert_flux_path "${prod_cluster_coroot}" infrastructure-controllers providers/hetzner/infrastructure-controllers-coroot
+assert_flux_path "${prod_cluster_coroot}" infrastructure providers/hetzner/infrastructure-coroot
+assert_flux_path "${prod_cluster_coroot}" apps providers/hetzner/apps
 
 # Cluster renders contain Flux pointers, so inspect the provider payloads those
 # pointers reconcile. This catches accidental activation in either layer.
@@ -155,10 +209,10 @@ for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_de
   assert_opencost_resources_absent "${rendered_path}"
 done
 
-render k8s/testdata/observability-option/docker/controllers/ "${docker_controllers}"
-render k8s/testdata/observability-option/docker/infrastructure/ "${docker_infrastructure}"
-render k8s/testdata/observability-option/hetzner/controllers/ "${hetzner_controllers}"
-render k8s/testdata/observability-option/hetzner/infrastructure/ "${hetzner_infrastructure}"
+render k8s/providers/docker/infrastructure-controllers-coroot/ "${docker_controllers}"
+render k8s/providers/docker/infrastructure-coroot/ "${docker_infrastructure}"
+render k8s/providers/hetzner/infrastructure-controllers-coroot/ "${hetzner_controllers}"
+render k8s/providers/hetzner/infrastructure-coroot/ "${hetzner_infrastructure}"
 
 assert_auth_proxy_without_opencost "${local_controllers_default}" "${docker_controllers}"
 assert_auth_proxy_without_opencost "${prod_controllers_default}" "${hetzner_controllers}"
@@ -251,4 +305,4 @@ if grep -R -E -n '(devantler|homelab|hooks\.slack\.com|hcloud|alertmanager_webho
   exit 1
 fi
 
-echo "Observability option validation passed (default-off + staged provider renders)."
+echo "Observability option validation passed (default-off + selectable Coroot provider renders)."
