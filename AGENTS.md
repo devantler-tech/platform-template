@@ -116,6 +116,13 @@ kubectl kustomize k8s/clusters/prod/
 kubectl apply --dry-run=client -f <file>   # single-manifest YAML/schema check
 ```
 
+Default-off observability resources are intentionally absent from those cluster
+renders. Validate the unchanged default and staged provider opt-ins with:
+
+```bash
+./scripts/validate-observability-option.sh
+```
+
 `flux check` and other cluster-dependent checks require a running cluster — they are
 **not** part of static validation and must not be run during maintenance. A full
 Talos + Docker system test runs in CI (`validate-scaffold.yaml` / `ci.yaml`) on
@@ -188,8 +195,11 @@ minimal and generic.
 validate` and `ksail --config ksail.prod.yaml workload validate` (schema-aware, Flux
 substitution, no cluster). Without KSail, both overlays MUST build with `kubectl
 kustomize k8s/clusters/local/` and `kubectl kustomize k8s/clusters/prod/`. Per file:
-`kubectl apply --dry-run=client -f <file>`. **Never run a cluster** (no `ksail cluster
-create`/`update`/`delete`, no mutating `~/.kube/config`). **Protected — never modify**
+`kubectl apply --dry-run=client -f <file>`. Changes to the staged Coroot or
+audit-log-forwarder option also run
+`./scripts/validate-observability-option.sh` to cover its default-off and opt-in
+layers. **Never run a cluster** (no `ksail cluster create`/`update`/
+`delete`, no mutating `~/.kube/config`). **Protected — never modify**
 in this repo: `*.enc.yaml`, `.sops.yaml`; **bases immutable** — change via Kustomize
 `patches:` in overlays, never edit `k8s/bases/` from an overlay; respect Flux order
 `bootstrap → infrastructure-controllers → infrastructure → apps`.

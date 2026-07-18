@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    # Coroot's eBPF node agent requires host access. Admission-policy and
+    # runtime-security exceptions remain part of the later activation slice.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/enforce-version: latest

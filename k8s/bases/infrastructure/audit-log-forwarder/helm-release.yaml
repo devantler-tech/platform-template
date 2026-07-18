@@ -1,0 +1,158 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: audit-log-forwarder
+  namespace: observability
+  labels:
+    helm.toolkit.fluxcd.io/remediation: enabled
+  annotations:
+    # OpenTelemetry expands ${env:...}; Flux must leave those expressions
+    # untouched instead of interpreting them as postBuild substitutions.
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  interval: 10m0s
+  timeout: 10m
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    remediation:
+      retries: -1
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: opentelemetry-collector
+      version: 0.165.0
+      sourceRef:
+        kind: HelmRepository
+        name: open-telemetry
+  values:
+    mode: daemonset
+    fullnameOverride: audit-log-forwarder
+    serviceAccount:
+      automountServiceAccountToken: false
+    image:
+      repository: >-
+        ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-k8s
+    command:
+      name: otelcol-k8s
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+    ports:
+      otlp:
+        enabled: false
+      otlp-http:
+        enabled: false
+      jaeger-compact:
+        enabled: false
+      jaeger-thrift:
+        enabled: false
+      jaeger-grpc:
+        enabled: false
+      zipkin:
+        enabled: false
+    extraEnvs:
+      - name: COROOT_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: coroot-api-key
+            key: key
+      - name: K8S_NODE_NAME
+        valueFrom:
+          fieldRef:
+            fieldPath: spec.nodeName
+    extraVolumes:
+      - name: audit-log
+        hostPath:
+          path: /var/log/audit/kube
+          # Deliberately omit type. Talos' kubelet mount namespace cannot stat
+          # the host directory even though the runtime can mount it.
+      - name: checkpoints
+        emptyDir: {}
+    extraVolumeMounts:
+      - name: audit-log
+        mountPath: /var/log/audit/kube
+        readOnly: true
+      - name: checkpoints
+        mountPath: /var/lib/audit-log-forwarder
+    securityContext:
+      runAsUser: 0
+      runAsGroup: 0
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+        add:
+          - DAC_READ_SEARCH
+      seccompProfile:
+        type: RuntimeDefault
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 512Mi
+    config:
+      extensions:
+        file_storage:
+          directory: /var/lib/audit-log-forwarder
+          create_directory: true
+      receivers:
+        filelog:
+          include:
+            - /var/log/audit/kube/audit.log
+          start_at: beginning
+          storage: file_storage
+          operators:
+            - type: json_parser
+              parse_to: attributes
+              timestamp:
+                parse_from: attributes.stageTimestamp
+                layout_type: gotime
+                layout: "2006-01-02T15:04:05.000000Z07:00"
+            - type: retain
+              fields:
+                - attributes.level
+                - attributes.stage
+                - attributes.verb
+                - attributes.auditID
+                - attributes.requestURI
+                - attributes.user.username
+                - attributes.objectRef
+                - attributes.responseStatus
+      processors:
+        resource/audit:
+          attributes:
+            - key: service.name
+              value: kube-apiserver-audit
+              action: upsert
+            - key: k8s.node.name
+              value: ${env:K8S_NODE_NAME}
+              action: upsert
+      exporters:
+        otlphttp/coroot:
+          logs_endpoint: >-
+            http://coroot-coroot.observability.svc.cluster.local:8080/v1/logs
+          headers:
+            x-api-key: ${env:COROOT_API_KEY}
+      service:
+        extensions:
+          - health_check
+          - file_storage
+        pipelines:
+          logs:
+            receivers:
+              - filelog
+            processors:
+              - memory_limiter
+              - resource/audit
+              - batch
+            exporters:
+              - otlphttp/coroot
+          traces: null
+          metrics: null

@@ -1,0 +1,54 @@
+apiVersion: coroot.com/v1
+kind: Coroot
+metadata:
+  name: coroot
+  namespace: observability
+spec:
+  # Pin every operator-managed image. With an empty image.name the operator
+  # discovers the highest registry tag on each reconciliation, making a
+  # generated platform non-deterministic.
+  communityEdition:
+    image:
+      name: ghcr.io/coroot/coroot:1.22.2
+
+  authAnonymousRole: Admin
+  metricsRefreshInterval: 30s
+  cacheTTL: 30d
+
+  storage:
+    size: 2Gi
+  prometheus:
+    retention: 7d
+    storage:
+      size: 10Gi
+  clickhouse:
+    shards: 1
+    replicas: 1
+    keeper:
+      replicas: 1
+    storage:
+      size: 10Gi
+  logsTTL: 3d
+  tracesTTL: 3d
+  profilesTTL: 3d
+
+  nodeAgent:
+    image:
+      name: ghcr.io/coroot/coroot-node-agent:1.33.3
+    priorityClassName: platform-critical
+    tolerations:
+      - operator: Exists
+  clusterAgent:
+    image:
+      name: ghcr.io/coroot/coroot-cluster-agent:1.7.1
+
+  # The operator generates this Secret in-cluster. The bundled agents and the
+  # default-off audit-log-forwarder consume the same key without a committed
+  # credential or an instance-specific project name.
+  projects:
+    - name: ${cluster_name}
+      apiKeys:
+        - keySecret:
+            name: coroot-api-key
+            key: key
+          description: bundled agents and audit-log-forwarder
