@@ -57,6 +57,7 @@ k8s/                    # All Kubernetes manifests
     infrastructure/     # Organized by resource type: controllers/, certificates/, gateway/,
                         #   cluster-policies/, external-secrets/, alerts/, vault-*/ (OpenBao), etc.
     apps/               # App deployments — whoami, homepage, headlamp
+  components/           # Shared opt-in Kustomize components used by provider profiles
   providers/            # Provider-specific overlays (TEMPLATE-OWNED)
     docker/             # Local/CI provider (e.g. disables SPIRE mutual auth)
     hetzner/            # Production provider
@@ -121,8 +122,10 @@ kubectl kustomize k8s/clusters/prod/
 kubectl apply --dry-run=client -f <file>   # single-manifest YAML/schema check
 ```
 
-Default-off observability resources are intentionally absent from those cluster
-renders. Validate the unchanged default and staged provider opt-ins with:
+Coroot resources are intentionally absent from the default cluster paths. The
+selectable `clusters/local-coroot` and `clusters/prod-coroot` paths opt in through
+the instance-owned KSail config. Validate the unchanged defaults and both profiles
+with:
 
 ```bash
 ./scripts/validate-observability-option.sh
@@ -201,8 +204,8 @@ validate` and `ksail --config ksail.prod.yaml workload validate` (schema-aware, 
 substitution, no cluster), and run `./scripts/validate-shared-cluster-policies.sh`
 when shared policy resources change. Without KSail, both overlays MUST build with `kubectl
 kustomize k8s/clusters/local/` and `kubectl kustomize k8s/clusters/prod/`. Per file:
-`kubectl apply --dry-run=client -f <file>`. Changes to the staged Coroot or
-audit-log-forwarder option also run
+`kubectl apply --dry-run=client -f <file>`. Changes to the selectable Coroot or
+audit-log-forwarder profiles also run
 `./scripts/validate-observability-option.sh` to cover its default-off and opt-in
 layers. **Never run a cluster** (no `ksail cluster create`/`update`/
 `delete`, no mutating `~/.kube/config`). **Protected — never modify**

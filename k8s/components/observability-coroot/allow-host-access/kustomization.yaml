@@ -1,0 +1,93 @@
+---
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# Coroot's eBPF node agent and the production audit collector need deliberate
+# host access. Keep the exception scoped to the explicit Coroot profiles; the
+# default provider payloads retain the stricter observability namespace policy.
+patches:
+  - target:
+      group: kyverno.io
+      version: v1
+      kind: ClusterPolicy
+      name: add-security-context
+    patch: |
+      - op: test
+        path: /spec/rules/0/exclude/any/0/resources/namespaces/10
+        value: velero
+      - op: add
+        path: /spec/rules/0/exclude/any/0/resources/namespaces/-
+        value: observability
+      - op: test
+        path: /spec/rules/1/exclude/any/0/resources/namespaces/10
+        value: velero
+      - op: add
+        path: /spec/rules/1/exclude/any/0/resources/namespaces/-
+        value: observability
+  - target:
+      group: kyverno.io
+      version: v1
+      kind: ClusterPolicy
+      name: validate-host-restrictions
+    patch: |
+      - op: test
+        path: /spec/rules/0/exclude/any/0/resources/namespaces/10
+        value: velero
+      - op: add
+        path: /spec/rules/0/exclude/any/0/resources/namespaces/-
+        value: observability
+      - op: test
+        path: /spec/rules/1/exclude/any/0/resources/namespaces/10
+        value: velero
+      - op: add
+        path: /spec/rules/1/exclude/any/0/resources/namespaces/-
+        value: observability
+  - target:
+      group: kyverno.io
+      version: v1
+      kind: ClusterPolicy
+      name: validate-pod-security
+    patch: |
+      - op: test
+        path: /spec/rules/0/exclude/any/0/resources/namespaces/10
+        value: velero
+      - op: add
+        path: /spec/rules/0/exclude/any/0/resources/namespaces/-
+        value: observability
+      - op: test
+        path: /spec/rules/1/exclude/any/0/resources/namespaces/10
+        value: velero
+      - op: add
+        path: /spec/rules/1/exclude/any/0/resources/namespaces/-
+        value: observability
+      - op: test
+        path: /spec/rules/2/exclude/any/0/resources/namespaces/10
+        value: velero
+      - op: add
+        path: /spec/rules/2/exclude/any/0/resources/namespaces/-
+        value: observability
+  - target:
+      group: kubescape.io
+      version: v1beta1
+      kind: ClusterSecurityException
+      name: infrastructure-privileged
+    patch: |
+      - op: test
+        path: /spec/match/namespaceSelector/matchExpressions/0/values/5
+        value: cdi
+      - op: add
+        path: /spec/match/namespaceSelector/matchExpressions/0/values/-
+        value: observability
+      - op: test
+        path: /spec/reason
+        value: >-
+          CNI (Cilium), distributed storage (Longhorn), node monitoring
+          (Prometheus node-exporter), identity (SPIRE agent), backup
+          (Velero node-agent), and virtualisation (KubeVirt, CDI) require
+          host-level access by design.
+      - op: replace
+        path: /spec/reason
+        value: >-
+          CNI (Cilium), distributed storage (Longhorn), node monitoring
+          (Prometheus node-exporter and Coroot node agent), identity (SPIRE
+          agent), backup (Velero node-agent), virtualisation (KubeVirt, CDI),
+          and opt-in host audit collection require host-level access by design.

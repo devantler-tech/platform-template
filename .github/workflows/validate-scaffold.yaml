@@ -55,9 +55,8 @@ jobs:
           ksail --version
 
       - name: 🔭 Validate default-off observability option
-        # The staged Coroot/audit-forwarder bases are deliberately absent from
-        # both default overlays, so the ordinary KSail validations below cannot
-        # reach them. Exercise both the default and explicit opt-in renders.
+        # Coroot stays absent from the default provider paths. The validator also
+        # renders the explicit local/prod profiles selected through KSail.
         run: ./scripts/validate-observability-option.sh
 
       - name: 🛡️ Validate shared cluster policies

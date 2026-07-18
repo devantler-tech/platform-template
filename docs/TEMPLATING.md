@@ -35,15 +35,53 @@ Only these fields genuinely vary per instance:
 | `spec.provider.hetzner.networkCidr` | n/a | private network CIDR | — (edit if it clashes) |
 | `spec.cluster.autoscaler.node.pools` | n/a | node pool definitions (name, serverType, location, min, max) | — (edit to tune autoscaling) |
 | `spec.cluster.autoscaler.node.maxNodesTotal` | n/a | hard ceiling on total cluster nodes | — (edit to cap cost) |
-| `spec.workload.kustomizationFile` | `clusters/local` | `clusters/prod` | — (fixed) |
+| `spec.workload.kustomizationFile` | `clusters/local` | `clusters/prod` | — (choose the default or Coroot profile) |
 
 Everything else (distribution, provider, CNI, GitOps engine, timeouts,
 `certManager`/`metricsServer`/`policyEngine`, Talos/Kubernetes version pins,
 `sourceDirectory`, tag) should match across all Hetzner-backed instances. The
 autoscaler is documented in [`node-autoscaling.md`](node-autoscaling.md).
 
-**To change after bootstrap:** edit `ksail.prod.yaml` and run
-`ksail --config ksail.prod.yaml cluster update`.
+### Select the transitional Coroot profile
+
+The default paths keep the existing observability stack. To evaluate Coroot,
+change only `spec.workload.kustomizationFile` in the KSail config for the cluster:
+
+| Cluster | Default | Coroot profile |
+|---|---|---|
+| local / Docker | `clusters/local` | `clusters/local-coroot` |
+| prod / Hetzner | `clusters/prod` | `clusters/prod-coroot` |
+
+The KSail configs belong to the instance and are excluded from template sync, so
+the choice persists when shared platform files update. To return to the default,
+restore `clusters/local` or `clusters/prod`.
+
+After selecting or reverting the profile, publish the payload, update the
+FluxInstance sync path, and then ask Flux to reconcile it. Neither `cluster
+update` alone nor `workload push` plus `workload reconcile` alone completes all
+three steps:
+
+```bash
+# local / Docker
+ksail --config ksail.yaml workload push
+ksail --config ksail.yaml cluster update
+ksail --config ksail.yaml workload reconcile
+
+# prod / Hetzner
+ksail --config ksail.prod.yaml workload push
+ksail --config ksail.prod.yaml cluster update
+ksail --config ksail.prod.yaml workload reconcile
+```
+
+This profile is transitional. It enables Coroot, removes OpenCost and its Headlamp
+plugin, and keeps the legacy Prometheus, Loki, and Alloy stack while later template
+updates finish the migration. Cost allocation is therefore unavailable in this
+profile; it does not connect OpenCost to Coroot Prometheus. Docker runs Coroot
+without the audit log forwarder, while Hetzner includes the forwarder for host
+audit logs. Because Coroot's eBPF agent and the production audit collector need
+host access, the profile also exempts the `observability` namespace from the
+Kyverno host and restricted-pod policies; the default paths keep those policies
+enforced for that namespace.
 
 ### 2. Talos machine-config directories
 
@@ -138,6 +176,9 @@ See [`.github/workflows/`](../.github/workflows) for the exact names in use.
   and the rest of the controller set.
 - [`k8s/bases/apps/`](../k8s/bases/apps) — the demo applications (homepage, whoami,
   headlamp).
+- [`k8s/components/`](../k8s/components) — shared opt-in transformations used by
+  provider profiles, such as removing OpenCost across controller, infrastructure,
+  and app layers.
 - [`k8s/providers/{docker,hetzner}/`](../k8s/providers) — provider-specific assembly
   of the bases.
 
