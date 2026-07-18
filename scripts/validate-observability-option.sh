@@ -54,8 +54,10 @@ assert_default_off() {
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 0
 }
 
-local_default="${tmp_dir}/local-default.yaml"
-prod_default="${tmp_dir}/prod-default.yaml"
+local_controllers_default="${tmp_dir}/local-controllers-default.yaml"
+local_infrastructure_default="${tmp_dir}/local-infrastructure-default.yaml"
+prod_controllers_default="${tmp_dir}/prod-controllers-default.yaml"
+prod_infrastructure_default="${tmp_dir}/prod-infrastructure-default.yaml"
 docker_controllers="${tmp_dir}/docker-controllers.yaml"
 docker_infrastructure="${tmp_dir}/docker-infrastructure.yaml"
 hetzner_controllers="${tmp_dir}/hetzner-controllers.yaml"
@@ -63,10 +65,19 @@ hetzner_infrastructure="${tmp_dir}/hetzner-infrastructure.yaml"
 coroot_api_expression="\${env:COROOT_API_KEY}"
 node_name_expression="\${env:K8S_NODE_NAME}"
 
-render k8s/clusters/local/ "${local_default}"
-render k8s/clusters/prod/ "${prod_default}"
-assert_default_off "${local_default}"
-assert_default_off "${prod_default}"
+# Cluster renders contain Flux pointers, so inspect the provider payloads those
+# pointers reconcile. This catches accidental activation in either layer.
+render k8s/providers/docker/infrastructure/controllers/ "${local_controllers_default}"
+render k8s/providers/docker/infrastructure/ "${local_infrastructure_default}"
+render k8s/providers/hetzner/infrastructure/controllers/ "${prod_controllers_default}"
+render k8s/providers/hetzner/infrastructure/ "${prod_infrastructure_default}"
+for rendered_path in \
+  "${local_controllers_default}" \
+  "${local_infrastructure_default}" \
+  "${prod_controllers_default}" \
+  "${prod_infrastructure_default}"; do
+  assert_default_off "${rendered_path}"
+done
 
 render k8s/testdata/observability-option/docker/controllers/ "${docker_controllers}"
 render k8s/testdata/observability-option/docker/infrastructure/ "${docker_infrastructure}"
@@ -92,6 +103,10 @@ coroot_key_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
     jq -s '[.[] | select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") | .spec.projects[]?.apiKeys[]?.keySecret | select(.name == "coroot-api-key" and .key == "key")] | length'
 )"
+coroot_agent_key_contract="$(
+  yq eval-all -o=json '.' "${hetzner_infrastructure}" |
+    jq -s '[.[] | select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") | .spec.apiKeySecret | select(.name == "coroot-api-key" and .key == "key")] | length'
+)"
 forwarder_key_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
     jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "observability" and .metadata.name == "audit-log-forwarder") | .spec.values.extraEnvs[]? | select(.name == "COROOT_API_KEY") | .valueFrom.secretKeyRef | select(.name == "coroot-api-key" and .key == "key")] | length'
@@ -106,15 +121,15 @@ audit_glob_contract="$(
 )"
 network_policy_contract="$(
   yq eval-all -o=json '.' "${hetzner_controllers}" |
-    jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") | select(any(.spec.ingress[]?.fromEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "observability")) | select(any(.spec.egress[]?.toEntities[]?; . == "kube-apiserver"))] | length'
+    jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") | select(any(.spec.ingress[]?.fromEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "observability")) | select(any(.spec.egress[]?.toEntities[]?; . == "kube-apiserver")) | select(any(.spec.egress[]?.toFQDNs[]?; .matchName == "ghcr.io"))] | length'
 )"
 renovate_coroot_manager="$(
   jq '[.customManagers[]? | select(.datasourceTemplate == "docker") | select(any(.fileMatch[]?; . == "^k8s/bases/infrastructure/coroot/coroot\\.ya?ml$")) | select(any(.matchStrings[]?; contains("ghcr\\.io/coroot")))] | length' \
     "${repo_root}/.github/renovate.json"
 )"
 
-if [[ "${coroot_key_contract}" != "1" || "${forwarder_key_contract}" != "1" ]]; then
-  echo "Coroot and audit-log-forwarder do not share the coroot-api-key/key Secret contract" >&2
+if [[ "${coroot_key_contract}" != "1" || "${coroot_agent_key_contract}" != "1" || "${forwarder_key_contract}" != "1" ]]; then
+  echo "Coroot projects, bundled agents, and audit-log-forwarder do not share the coroot-api-key/key Secret contract" >&2
   exit 1
 fi
 if [[ "${substitution_disabled}" != "true" ]]; then
@@ -126,7 +141,7 @@ if [[ "${audit_glob_contract}" != "1" ]]; then
   exit 1
 fi
 if [[ "${network_policy_contract}" != "1" ]]; then
-  echo "Coroot controller layer must allow intra-namespace traffic and Kubernetes API egress" >&2
+  echo "Coroot controller layer must retain its intra-namespace, Kubernetes API, and GHCR access" >&2
   exit 1
 fi
 if [[ "${renovate_coroot_manager}" != "1" ]]; then

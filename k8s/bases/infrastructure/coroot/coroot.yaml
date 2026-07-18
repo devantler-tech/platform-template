@@ -12,6 +12,12 @@ spec:
     image:
       name: ghcr.io/coroot/coroot:1.22.2
 
+  # Route the bundled node and cluster agents into the project whose key the
+  # operator generates below.
+  apiKeySecret:
+    name: coroot-api-key
+    key: key
+
   authAnonymousRole: Admin
   metricsRefreshInterval: 30s
   cacheTTL: 30d

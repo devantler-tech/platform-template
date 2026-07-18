@@ -31,8 +31,10 @@ spec:
     - toEntities:
         - host
         - remote-node
-    # Coroot version checks and its generic cloud-pricing data set.
+    # Coroot version checks, registry discovery for optional components, and
+    # its generic cloud-pricing data set.
     - toFQDNs:
+        - matchName: ghcr.io
         - matchName: coroot.com
         - matchName: coroot.github.io
       toPorts:
