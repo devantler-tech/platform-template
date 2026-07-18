@@ -406,6 +406,14 @@ audit_glob_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
     jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "observability" and .metadata.name == "audit-log-forwarder") | .spec.values.config.receivers.filelog.include[]? | select(. == "/var/log/audit/kube/audit*")] | length'
 )"
+audit_pipeline_contract="$(
+  yq eval-all -o=json '.' "${hetzner_infrastructure}" |
+    jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "observability" and .metadata.name == "audit-log-forwarder") | .spec.values.config.service.pipelines.logs | select(any(.receivers[]?; . == "filelog")) | select(any(.exporters[]?; . == "otlphttp/coroot"))] | length'
+)"
+audit_exporter_contract="$(
+  yq eval-all -o=json '.' "${hetzner_infrastructure}" |
+    jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "observability" and .metadata.name == "audit-log-forwarder") | .spec.values.config.exporters."otlphttp/coroot".logs_endpoint | select(. == "http://coroot-coroot.observability.svc.cluster.local:8080/v1/logs")] | length'
+)"
 network_policy_contract="$(
   yq eval-all -o=json '.' "${hetzner_controllers}" |
     jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") | select(any(.spec.ingress[]?.fromEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "observability")) | select(any(.spec.egress[]?.toEntities[]?; . == "kube-apiserver")) | select(any(.spec.egress[]?.toFQDNs[]?; .matchName == "ghcr.io"))] | length'
@@ -429,6 +437,14 @@ if [[ "${substitution_disabled}" != "true" ]]; then
 fi
 if [[ "${audit_glob_contract}" != "1" ]]; then
   echo "audit-log-forwarder must discover the active and retained rotated audit logs" >&2
+  exit 1
+fi
+if [[ "${audit_pipeline_contract}" != "1" ]]; then
+  echo "audit-log-forwarder must route the filelog receiver through the logs pipeline to otlphttp/coroot" >&2
+  exit 1
+fi
+if [[ "${audit_exporter_contract}" != "1" ]]; then
+  echo "audit-log-forwarder must export logs to Coroot's in-cluster OTLP endpoint" >&2
   exit 1
 fi
 if [[ "${network_policy_contract}" != "1" ]]; then
