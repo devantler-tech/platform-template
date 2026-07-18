@@ -60,6 +60,11 @@ jobs:
         # reach them. Exercise both the default and explicit opt-in renders.
         run: ./scripts/validate-observability-option.sh
 
+      - name: 🛡️ Validate shared cluster policies
+        # Hold the shared Helm remediation policy to its reviewed immutable
+        # source and rendered behavior instead of trusting a URL-only build.
+        run: ./scripts/validate-shared-cluster-policies.sh
+
       - name: ✅ Validate local manifests
         # ksail workload validate = kustomize build + kubeconform + Flux ${VAR}
         # substitution. A broken kustomization, an invalid resource, or an

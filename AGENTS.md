@@ -103,9 +103,14 @@ run a cluster for maintenance.** Validate both clusters with KSail (schema-aware
 applies Flux variable substitution, and does **not** start a cluster):
 
 ```bash
+./scripts/validate-shared-cluster-policies.sh
 ksail --config ksail.yaml workload validate
 ksail --config ksail.prod.yaml workload validate
 ```
+
+The shared-policy gate renders both provider payloads and verifies that the
+remote Helm remediation policy remains pinned to its reviewed revision and
+retains its expected mutation contract.
 
 Fallback without KSail (both overlays MUST build — `kubectl` has Kustomize built in;
 standalone `kustomize` may not be installed):
@@ -193,7 +198,8 @@ minimal and generic.
 
 **Validate before any manifest PR** — prefer `ksail --config ksail.yaml workload
 validate` and `ksail --config ksail.prod.yaml workload validate` (schema-aware, Flux
-substitution, no cluster). Without KSail, both overlays MUST build with `kubectl
+substitution, no cluster), and run `./scripts/validate-shared-cluster-policies.sh`
+when shared policy resources change. Without KSail, both overlays MUST build with `kubectl
 kustomize k8s/clusters/local/` and `kubectl kustomize k8s/clusters/prod/`. Per file:
 `kubectl apply --dry-run=client -f <file>`. Changes to the staged Coroot or
 audit-log-forwarder option also run
