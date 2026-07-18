@@ -108,9 +108,9 @@ ksail --config ksail.yaml workload validate
 ksail --config ksail.prod.yaml workload validate
 ```
 
-The shared-policy gate renders both provider payloads and verifies that remote
-Kyverno policies remain pinned to their reviewed revisions and retain their
-expected mutation or validation contract.
+The shared-policy gate renders both provider payloads and verifies that the
+remote Helm remediation policy remains pinned to its reviewed revision and
+retains its expected mutation contract.
 
 Fallback without KSail (both overlays MUST build — `kubectl` has Kustomize built in;
 standalone `kustomize` may not be installed):

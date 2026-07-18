@@ -23,11 +23,10 @@ fi
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
-for provider in docker hetzner; do
-  rendered="${tmp_dir}/${provider}.yaml"
-  kubectl kustomize "${repo_root}/k8s/providers/${provider}/infrastructure/" >"${rendered}"
+assert_policy_contract() {
+  local rendered_path="$1"
 
-  if ! yq eval-all -o=json '.' "${rendered}" |
+  yq eval-all -o=json '.' "${rendered_path}" |
     jq -s -e --arg name "${policy_name}" '
       [.[] | select(
         type == "object"
@@ -35,34 +34,80 @@ for provider in docker hetzner; do
         and .kind == "ClusterPolicy"
         and .metadata.name == $name
       )] as $policies
+      | $policies[0].spec.rules as $rules
       | ($policies | length) == 1
         and ($policies[0].spec.background == false)
-        and ([$policies[0].spec.rules[].name] == [
+        and ([$rules[].name] == [
           "default-install-remediation",
           "default-upgrade-remediation"
         ])
-        and ([$policies[0].spec.rules[].match.any[0].resources.kinds] | all(
-          . == ["helm.toolkit.fluxcd.io/v2/HelmRelease"]
-        ))
-        and ([$policies[0].spec.rules[].match.any[0].resources.operations] | all(
-          . == ["CREATE", "UPDATE"]
-        ))
-        and ([$policies[0].spec.rules[].match.any[0].resources.selector.matchLabels["helm.toolkit.fluxcd.io/remediation"]] | all(
-          . == "enabled"
-        ))
-        and ([$policies[0].spec.rules[] | has("exclude")] | all(. == false))
-        and ($policies[0].spec.rules[0].preconditions.all[0].value == "RetryOnFailure")
-        and ($policies[0].spec.rules[0].preconditions.all[1].value == 0)
-        and ($policies[0].spec.rules[0].mutate.patchStrategicMerge.spec.install.remediation["+(retries)"] == -1)
-        and ($policies[0].spec.rules[0].mutate.patchStrategicMerge.spec.install.remediation["+(remediateLastFailure)"] == true)
-        and ($policies[0].spec.rules[1].preconditions.all[0].value == "RetryOnFailure")
-        and ($policies[0].spec.rules[1].preconditions.all[1].value == 0)
-        and ($policies[0].spec.rules[1].mutate.patchStrategicMerge.spec.upgrade.remediation["+(retries)"] == -1)
-        and ($policies[0].spec.rules[1].mutate.patchStrategicMerge.spec.upgrade.remediation["+(remediateLastFailure)"] == true)
-    ' >/dev/null; then
+        and ($rules[0].match.any == [{
+          resources: {
+            kinds: ["helm.toolkit.fluxcd.io/v2/HelmRelease"],
+            operations: ["CREATE", "UPDATE"],
+            selector: {matchLabels: {"helm.toolkit.fluxcd.io/remediation": "enabled"}}
+          }
+        }])
+        and ($rules[1].match.any == $rules[0].match.any)
+        and ([$rules[] | has("exclude")] | all(. == false))
+        and ($rules[0].preconditions.all == [
+          {
+            key: "{{ request.object.spec.install.strategy.name || \u0027\u0027 }}",
+            operator: "NotEquals",
+            value: "RetryOnFailure"
+          },
+          {
+            key: "{{ request.object.spec.install.remediation.retries || \u0027\u0027 }}",
+            operator: "NotEquals",
+            value: 0
+          }
+        ])
+        and ($rules[1].preconditions.all == [
+          {
+            key: "{{ request.object.spec.upgrade.strategy.name || \u0027\u0027 }}",
+            operator: "NotEquals",
+            value: "RetryOnFailure"
+          },
+          {
+            key: "{{ request.object.spec.upgrade.remediation.retries || \u0027\u0027 }}",
+            operator: "NotEquals",
+            value: 0
+          }
+        ])
+        and ($rules[0].mutate.patchStrategicMerge == {
+          spec: {install: {remediation: {
+            "+(retries)": -1,
+            "+(remediateLastFailure)": true
+          }}}
+        })
+        and ($rules[1].mutate.patchStrategicMerge == {
+          spec: {upgrade: {remediation: {
+            "+(retries)": -1,
+            "+(remediateLastFailure)": true
+          }}}
+        })
+    ' >/dev/null
+}
+
+for provider in docker hetzner; do
+  rendered="${tmp_dir}/${provider}.yaml"
+  kubectl kustomize "${repo_root}/k8s/providers/${provider}/infrastructure/" >"${rendered}"
+
+  if ! assert_policy_contract "${rendered}"; then
     echo "${provider} render does not preserve the shared ${policy_name} contract" >&2
     exit 1
   fi
+
+  if [[ "${provider}" == "docker" ]]; then
+    mutated="${tmp_dir}/${provider}-invalid-precondition.yaml"
+    yq eval-all \
+      '(select(.apiVersion == "kyverno.io/v1" and .kind == "ClusterPolicy" and .metadata.name == "helm-release-remediation-retries").spec.rules[0].preconditions.all[0].operator) = "Equals"' \
+      "${rendered}" >"${mutated}"
+    if assert_policy_contract "${mutated}"; then
+      echo "negative control passed after inverting the install-strategy precondition" >&2
+      exit 1
+    fi
+  fi
 done
 
-echo "✓ Shared cluster-policy contract satisfied."
+echo "✓ Shared Helm remediation policy contract satisfied."

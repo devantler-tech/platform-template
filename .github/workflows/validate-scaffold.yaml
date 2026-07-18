@@ -61,8 +61,8 @@ jobs:
         run: ./scripts/validate-observability-option.sh
 
       - name: 🛡️ Validate shared cluster policies
-        # Hold every remote policy to its reviewed immutable source and rendered
-        # behavior instead of trusting a URL-only Kustomize build.
+        # Hold the shared Helm remediation policy to its reviewed immutable
+        # source and rendered behavior instead of trusting a URL-only build.
         run: ./scripts/validate-shared-cluster-policies.sh
 
       - name: ✅ Validate local manifests
