@@ -412,7 +412,7 @@ audit_pipeline_contract="$(
 )"
 audit_exporter_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
-    jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "observability" and .metadata.name == "audit-log-forwarder") | .spec.values.config.exporters."otlphttp/coroot".logs_endpoint | select(. == "http://coroot-coroot.observability.svc.cluster.local:8080/v1/logs")] | length'
+    jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "observability" and .metadata.name == "audit-log-forwarder") | .spec.values.config.exporters."otlphttp/coroot" | select(.logs_endpoint == "http://coroot-coroot.observability.svc.cluster.local:8080/v1/logs") | select(.headers."x-api-key" == "${env:COROOT_API_KEY}")] | length'
 )"
 network_policy_contract="$(
   yq eval-all -o=json '.' "${hetzner_controllers}" |
@@ -444,7 +444,7 @@ if [[ "${audit_pipeline_contract}" != "1" ]]; then
   exit 1
 fi
 if [[ "${audit_exporter_contract}" != "1" ]]; then
-  echo "audit-log-forwarder must export logs to Coroot's in-cluster OTLP endpoint" >&2
+  echo "audit-log-forwarder must export logs to Coroot's in-cluster OTLP endpoint with its x-api-key" >&2
   exit 1
 fi
 if [[ "${network_policy_contract}" != "1" ]]; then
