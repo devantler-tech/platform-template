@@ -105,7 +105,9 @@ spec:
       receivers:
         filelog:
           include:
-            - /var/log/audit/kube/audit.log
+            # Cover both the active file and retained kube-apiserver rotation
+            # forms (`audit-<timestamp>.log` and `audit.log.N`).
+            - /var/log/audit/kube/audit*
           start_at: beginning
           storage: file_storage
           operators:

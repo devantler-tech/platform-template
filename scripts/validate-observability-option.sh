@@ -51,6 +51,7 @@ assert_default_off() {
   assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 0
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
+  assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 0
 }
 
 local_default="${tmp_dir}/local-default.yaml"
@@ -76,6 +77,7 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 1
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
+  assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 1
 done
 
 assert_resource_count "${docker_infrastructure}" HelmRelease observability coroot-operator 0
@@ -98,6 +100,18 @@ substitution_disabled="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
     jq -sr '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "observability" and .metadata.name == "audit-log-forwarder") | .metadata.annotations["kustomize.toolkit.fluxcd.io/substitute"] == "disabled"] | all'
 )"
+audit_glob_contract="$(
+  yq eval-all -o=json '.' "${hetzner_infrastructure}" |
+    jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "observability" and .metadata.name == "audit-log-forwarder") | .spec.values.config.receivers.filelog.include[]? | select(. == "/var/log/audit/kube/audit*")] | length'
+)"
+network_policy_contract="$(
+  yq eval-all -o=json '.' "${hetzner_controllers}" |
+    jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") | select(any(.spec.ingress[]?.fromEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "observability")) | select(any(.spec.egress[]?.toEntities[]?; . == "kube-apiserver"))] | length'
+)"
+renovate_coroot_manager="$(
+  jq '[.customManagers[]? | select(.datasourceTemplate == "docker") | select(any(.fileMatch[]?; . == "^k8s/bases/infrastructure/coroot/coroot\\.ya?ml$")) | select(any(.matchStrings[]?; contains("ghcr\\.io/coroot")))] | length' \
+    "${repo_root}/.github/renovate.json"
+)"
 
 if [[ "${coroot_key_contract}" != "1" || "${forwarder_key_contract}" != "1" ]]; then
   echo "Coroot and audit-log-forwarder do not share the coroot-api-key/key Secret contract" >&2
@@ -105,6 +119,18 @@ if [[ "${coroot_key_contract}" != "1" || "${forwarder_key_contract}" != "1" ]]; 
 fi
 if [[ "${substitution_disabled}" != "true" ]]; then
   echo "audit-log-forwarder must disable Flux substitution for OpenTelemetry env expressions" >&2
+  exit 1
+fi
+if [[ "${audit_glob_contract}" != "1" ]]; then
+  echo "audit-log-forwarder must discover the active and retained rotated audit logs" >&2
+  exit 1
+fi
+if [[ "${network_policy_contract}" != "1" ]]; then
+  echo "Coroot controller layer must allow intra-namespace traffic and Kubernetes API egress" >&2
+  exit 1
+fi
+if [[ "${renovate_coroot_manager}" != "1" ]]; then
+  echo "Coroot's image.name pins must remain Renovate-trackable" >&2
   exit 1
 fi
 if ! grep -Fq "${coroot_api_expression}" "${hetzner_infrastructure}" || ! grep -Fq "${node_name_expression}" "${hetzner_infrastructure}"; then

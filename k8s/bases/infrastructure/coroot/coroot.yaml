@@ -4,9 +4,10 @@ metadata:
   name: coroot
   namespace: observability
 spec:
-  # Pin every operator-managed image. With an empty image.name the operator
-  # discovers the highest registry tag on each reconciliation, making a
-  # generated platform non-deterministic.
+  # Pin every registry-discovered Coroot component image. The pinned operator
+  # chart fixes its bundled Prometheus, ClickHouse, and Keeper versions; only
+  # these three independently released first-party components float when their
+  # image.name is empty.
   communityEdition:
     image:
       name: ghcr.io/coroot/coroot:1.22.2

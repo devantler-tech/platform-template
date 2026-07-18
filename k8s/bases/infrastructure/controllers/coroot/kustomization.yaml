@@ -5,5 +5,6 @@ kind: Kustomization
 # establish the CRD before Flux server-side dry-runs the custom resource.
 resources:
   - namespace.yaml
+  - cilium-network-policy.yaml
   - helm-repository.yaml
   - helm-release.yaml
