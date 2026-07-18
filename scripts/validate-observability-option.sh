@@ -113,6 +113,18 @@ assert_opencost_resources_absent() {
   fi
 }
 
+assert_opencost_reference_count() {
+  local rendered_path="$1"
+  local expected="$2"
+  local actual
+
+  actual="$(opencost_reference_count "${rendered_path}")"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "expected ${expected} OpenCost-referencing resource(s) in ${rendered_path}, found ${actual}" >&2
+    return 1
+  fi
+}
+
 assert_opencost_absent() {
   local rendered_path="$1"
   local actual
@@ -147,16 +159,20 @@ assert_auth_proxy_without_opencost() {
 
 local_controllers_default="${tmp_dir}/local-controllers-default.yaml"
 local_infrastructure_default="${tmp_dir}/local-infrastructure-default.yaml"
+local_apps_default="${tmp_dir}/local-apps-default.yaml"
 prod_controllers_default="${tmp_dir}/prod-controllers-default.yaml"
 prod_infrastructure_default="${tmp_dir}/prod-infrastructure-default.yaml"
+prod_apps_default="${tmp_dir}/prod-apps-default.yaml"
 local_cluster_default="${tmp_dir}/local-cluster-default.yaml"
 prod_cluster_default="${tmp_dir}/prod-cluster-default.yaml"
 local_cluster_coroot="${tmp_dir}/local-cluster-coroot.yaml"
 prod_cluster_coroot="${tmp_dir}/prod-cluster-coroot.yaml"
 docker_controllers="${tmp_dir}/docker-controllers.yaml"
 docker_infrastructure="${tmp_dir}/docker-infrastructure.yaml"
+docker_apps="${tmp_dir}/docker-apps.yaml"
 hetzner_controllers="${tmp_dir}/hetzner-controllers.yaml"
 hetzner_infrastructure="${tmp_dir}/hetzner-infrastructure.yaml"
+hetzner_apps="${tmp_dir}/hetzner-apps.yaml"
 coroot_api_expression="\${env:COROOT_API_KEY}"
 node_name_expression="\${env:K8S_NODE_NAME}"
 
@@ -180,18 +196,20 @@ assert_flux_path "${prod_cluster_default}" apps providers/hetzner/apps
 assert_flux_path "${local_cluster_coroot}" bootstrap clusters/local/bootstrap
 assert_flux_path "${local_cluster_coroot}" infrastructure-controllers providers/docker/infrastructure-controllers-coroot
 assert_flux_path "${local_cluster_coroot}" infrastructure providers/docker/infrastructure-coroot
-assert_flux_path "${local_cluster_coroot}" apps providers/docker/apps
+assert_flux_path "${local_cluster_coroot}" apps providers/docker/apps-coroot
 assert_flux_path "${prod_cluster_coroot}" bootstrap clusters/prod/bootstrap
 assert_flux_path "${prod_cluster_coroot}" infrastructure-controllers providers/hetzner/infrastructure-controllers-coroot
 assert_flux_path "${prod_cluster_coroot}" infrastructure providers/hetzner/infrastructure-coroot
-assert_flux_path "${prod_cluster_coroot}" apps providers/hetzner/apps
+assert_flux_path "${prod_cluster_coroot}" apps providers/hetzner/apps-coroot
 
 # Cluster renders contain Flux pointers, so inspect the provider payloads those
 # pointers reconcile. This catches accidental activation in either layer.
 render k8s/providers/docker/infrastructure/controllers/ "${local_controllers_default}"
 render k8s/providers/docker/infrastructure/ "${local_infrastructure_default}"
+render k8s/providers/docker/apps/ "${local_apps_default}"
 render k8s/providers/hetzner/infrastructure/controllers/ "${prod_controllers_default}"
 render k8s/providers/hetzner/infrastructure/ "${prod_infrastructure_default}"
+render k8s/providers/hetzner/apps/ "${prod_apps_default}"
 for rendered_path in \
   "${local_controllers_default}" \
   "${local_infrastructure_default}" \
@@ -201,18 +219,22 @@ for rendered_path in \
 done
 
 # The default provider payloads retain the complete legacy OpenCost surface.
-# Only the explicit Coroot fixtures stage its retirement.
+# Only the explicit Coroot profiles retire it.
 for rendered_path in "${local_controllers_default}" "${prod_controllers_default}"; do
   assert_opencost_present "${rendered_path}"
 done
 for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_default}"; do
   assert_opencost_resources_absent "${rendered_path}"
 done
+assert_opencost_reference_count "${local_apps_default}" 1
+assert_opencost_reference_count "${prod_apps_default}" 1
 
 render k8s/providers/docker/infrastructure-controllers-coroot/ "${docker_controllers}"
 render k8s/providers/docker/infrastructure-coroot/ "${docker_infrastructure}"
+render k8s/providers/docker/apps-coroot/ "${docker_apps}"
 render k8s/providers/hetzner/infrastructure-controllers-coroot/ "${hetzner_controllers}"
 render k8s/providers/hetzner/infrastructure-coroot/ "${hetzner_infrastructure}"
+render k8s/providers/hetzner/apps-coroot/ "${hetzner_apps}"
 
 assert_auth_proxy_without_opencost "${local_controllers_default}" "${docker_controllers}"
 assert_auth_proxy_without_opencost "${prod_controllers_default}" "${hetzner_controllers}"
@@ -234,6 +256,8 @@ assert_resource_count "${hetzner_infrastructure}" HelmRelease observability coro
 assert_resource_count "${hetzner_infrastructure}" Coroot observability coroot 1
 assert_resource_count "${hetzner_infrastructure}" HelmRelease observability audit-log-forwarder 1
 assert_opencost_absent "${hetzner_infrastructure}"
+assert_opencost_absent "${docker_apps}"
+assert_opencost_absent "${hetzner_apps}"
 
 coroot_key_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
@@ -297,11 +321,28 @@ if ! grep -Fq "${coroot_api_expression}" "${hetzner_infrastructure}" || ! grep -
   exit 1
 fi
 
+templating_guide="${repo_root}/docs/TEMPLATING.md"
+for documented_value in clusters/local-coroot clusters/prod-coroot spec.workload.kustomizationFile; do
+  if ! grep -Fq "${documented_value}" "${templating_guide}"; then
+    echo "templating guide does not document Coroot opt-in value ${documented_value}" >&2
+    exit 1
+  fi
+done
+for documented_boundary in \
+  "This profile is transitional." \
+  "removes OpenCost and its Headlamp" \
+  "Cost allocation is therefore unavailable"; do
+  if ! grep -Fq "${documented_boundary}" "${templating_guide}"; then
+    echo "templating guide does not retain Coroot boundary: ${documented_boundary}" >&2
+    exit 1
+  fi
+done
+
 if grep -R -E -n '(devantler|homelab|hooks\.slack\.com|hcloud|alertmanager_webhook_url)' \
   "${repo_root}/k8s/bases/infrastructure/controllers/coroot" \
   "${repo_root}/k8s/bases/infrastructure/coroot" \
   "${repo_root}/k8s/bases/infrastructure/audit-log-forwarder"; then
-  echo "staged observability manifests contain an instance-specific value" >&2
+  echo "Coroot profile manifests contain an instance-specific value" >&2
   exit 1
 fi
 

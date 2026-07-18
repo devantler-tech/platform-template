@@ -8,7 +8,8 @@
 # Everything NOT listed here is TEMPLATE-OWNED shared plumbing and is kept current
 # in every instance by template-sync — change those upstream in
 # devantler-tech/platform-template, never by editing them in an instance. Notable
-# template-owned files: k8s/clusters/base/, k8s/bases/ (infrastructure), k8s/providers/,
+# template-owned files: k8s/clusters/base/, k8s/bases/ (infrastructure), k8s/components/,
+# k8s/providers/,
 # .github/workflows/{cd,release,template-sync,validate-scaffold,bootstrap}.yaml,
 # CLAUDE.md, zizmor.yml.
 
