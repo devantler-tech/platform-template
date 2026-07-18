@@ -1,0 +1,162 @@
+---
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# Remove cross-namespace consumers and exemptions alongside the explicit
+# Coroot fixtures' OpenCost workload retirement. Targets absent from a layer
+# are ignored; the executable contract rejects any surviving reference.
+patches:
+  - target:
+      version: v1
+      kind: ConfigMap
+      name: auth-proxy-config
+      namespace: oauth2-proxy
+    patch: |
+      - op: replace
+        path: /data/dynamic.yaml
+        value: |
+          http:
+            routers:
+              homepage:
+                rule: "Host(`${domain}`)"
+                entryPoints: ["web"]
+                service: homepage
+              hubble:
+                rule: "Host(`hubble.${domain}`)"
+                entryPoints: ["web"]
+                service: hubble-ui
+              prometheus:
+                rule: "Host(`prometheus.${domain}`)"
+                entryPoints: ["web"]
+                service: prometheus
+              alertmanager:
+                rule: "Host(`alertmanager.${domain}`)"
+                entryPoints: ["web"]
+                service: alertmanager
+            services:
+              homepage:
+                loadBalancer:
+                  servers:
+                    - url: "http://homepage.homepage.svc.cluster.local:80"
+              hubble-ui:
+                loadBalancer:
+                  servers:
+                    - url: >-
+                        http://keda-add-ons-http-interceptor-proxy.keda.svc.cluster.local:8080
+              prometheus:
+                loadBalancer:
+                  servers:
+                    - url: >-
+                        http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+              alertmanager:
+                loadBalancer:
+                  servers:
+                    - url: >-
+                        http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093
+  - target:
+      group: cilium.io
+      version: v2
+      kind: CiliumNetworkPolicy
+      name: allow-auth-proxy
+      namespace: oauth2-proxy
+    patch: |
+      - op: test
+        path: /spec/egress/3
+        value:
+          toEndpoints:
+            - matchLabels:
+                k8s:io.kubernetes.pod.namespace: opencost
+          toPorts:
+            - ports:
+                - port: "9090"
+                  protocol: TCP
+      - op: remove
+        path: /spec/egress/3
+  - target:
+      group: cilium.io
+      version: v2
+      kind: CiliumNetworkPolicy
+      name: allow-monitoring
+      namespace: monitoring
+    patch: |
+      - op: test
+        path: /spec/ingress/1
+        value:
+          fromEndpoints:
+            - matchLabels:
+                k8s:io.kubernetes.pod.namespace: opencost
+          toPorts:
+            - ports:
+                - port: "9090"
+                  protocol: TCP
+      - op: remove
+        path: /spec/ingress/1
+  - target:
+      group: gateway.networking.k8s.io
+      version: v1beta1
+      kind: ReferenceGrant
+      name: allow-oauth2-proxy-backends
+      namespace: oauth2-proxy
+    patch: |
+      - op: test
+        path: /spec/from/4
+        value:
+          group: gateway.networking.k8s.io
+          kind: HTTPRoute
+          namespace: opencost
+      - op: remove
+        path: /spec/from/4
+  - target:
+      group: kubescape.io
+      version: v1beta1
+      kind: ClusterSecurityException
+      name: controller-rbac
+    patch: |
+      - op: test
+        path: /spec/match/namespaceSelector/matchExpressions/0/values/16
+        value: opencost
+      - op: remove
+        path: /spec/match/namespaceSelector/matchExpressions/0/values/16
+      - op: test
+        path: /spec/reason
+        value: >-
+          Infrastructure controllers and platform middleware require broad RBAC
+          to manage their target resources cluster-wide. This includes GitOps
+          (Flux), policy engines (Kyverno), certificate managers (cert-manager),
+          database operators (CNPG), backup controllers (Velero), autoscalers
+          (KEDA), monitoring (Prometheus/opencost), virtualisation (KubeVirt,
+          CDI), storage (Longhorn), cluster dashboards (headlamp), service
+          discovery (homepage), identity (dex), auth proxies (oauth2-proxy),
+          and config watchers (reloader).
+      - op: replace
+        path: /spec/reason
+        value: >-
+          Infrastructure controllers and platform middleware require broad RBAC
+          to manage their target resources cluster-wide. This includes GitOps
+          (Flux), policy engines (Kyverno), certificate managers (cert-manager),
+          database operators (CNPG), backup controllers (Velero), autoscalers
+          (KEDA), monitoring (Prometheus), virtualisation (KubeVirt, CDI),
+          storage (Longhorn), cluster dashboards (headlamp), service discovery
+          (homepage), identity (dex), auth proxies (oauth2-proxy), and config
+          watchers (reloader).
+  - target:
+      group: kubescape.io
+      version: v1beta1
+      kind: ClusterSecurityException
+      name: service-account-tokens
+    patch: |
+      - op: test
+        path: /spec/match/namespaceSelector/matchExpressions/0/values/18
+        value: opencost
+      - op: remove
+        path: /spec/match/namespaceSelector/matchExpressions/0/values/18
+  - target:
+      group: kubescape.io
+      version: v1beta1
+      kind: ClusterSecurityException
+      name: health-probes
+    patch: |
+      - op: test
+        path: /spec/match/namespaceSelector/matchExpressions/0/values/14
+        value: opencost
+      - op: remove
+        path: /spec/match/namespaceSelector/matchExpressions/0/values/14

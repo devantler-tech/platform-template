@@ -37,6 +37,13 @@ opencost_resource_count() {
     jq -s '[.[] | select(type == "object" and ((.kind == "Namespace" and .metadata.name == "opencost") or .metadata.namespace == "opencost"))] | length'
 }
 
+opencost_reference_count() {
+  local rendered_path="$1"
+
+  yq eval-all -o=json '.' "${rendered_path}" |
+    jq -s '[.[] | select(type == "object" and (tojson | test("opencost"; "i")))] | length'
+}
+
 assert_resource_count() {
   local rendered_path="$1"
   local kind="$2"
@@ -71,13 +78,45 @@ assert_opencost_present() {
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy opencost allow-opencost 1
 }
 
-assert_opencost_absent() {
+assert_opencost_resources_absent() {
   local rendered_path="$1"
   local actual
 
   actual="$(opencost_resource_count "${rendered_path}")"
   if [[ "${actual}" != "0" ]]; then
     echo "expected no OpenCost resources in ${rendered_path}, found ${actual}" >&2
+    return 1
+  fi
+}
+
+assert_opencost_absent() {
+  local rendered_path="$1"
+  local actual
+
+  assert_opencost_resources_absent "${rendered_path}"
+  actual="$(opencost_reference_count "${rendered_path}")"
+  if [[ "${actual}" != "0" ]]; then
+    echo "expected no OpenCost references in ${rendered_path}, found ${actual} resource(s)" >&2
+    return 1
+  fi
+}
+
+assert_auth_proxy_without_opencost() {
+  local default_rendered_path="$1"
+  local opt_in_rendered_path="$2"
+  local expected
+  local actual
+
+  expected="$(
+    yq eval-all -o=json 'select(.kind == "ConfigMap" and .metadata.namespace == "oauth2-proxy" and .metadata.name == "auth-proxy-config") | .data."dynamic.yaml" | from_yaml' "${default_rendered_path}" |
+      jq -S -c 'del(.http.routers.opencost, .http.services.opencost)'
+  )"
+  actual="$(
+    yq eval-all -o=json 'select(.kind == "ConfigMap" and .metadata.namespace == "oauth2-proxy" and .metadata.name == "auth-proxy-config") | .data."dynamic.yaml" | from_yaml' "${opt_in_rendered_path}" |
+      jq -S -c '.'
+  )"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "opt-in auth-proxy config must equal its provider default minus the OpenCost router and service" >&2
     return 1
   fi
 }
@@ -113,13 +152,16 @@ for rendered_path in "${local_controllers_default}" "${prod_controllers_default}
   assert_opencost_present "${rendered_path}"
 done
 for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_default}"; do
-  assert_opencost_absent "${rendered_path}"
+  assert_opencost_resources_absent "${rendered_path}"
 done
 
 render k8s/testdata/observability-option/docker/controllers/ "${docker_controllers}"
 render k8s/testdata/observability-option/docker/infrastructure/ "${docker_infrastructure}"
 render k8s/testdata/observability-option/hetzner/controllers/ "${hetzner_controllers}"
 render k8s/testdata/observability-option/hetzner/infrastructure/ "${hetzner_infrastructure}"
+
+assert_auth_proxy_without_opencost "${local_controllers_default}" "${docker_controllers}"
+assert_auth_proxy_without_opencost "${prod_controllers_default}" "${hetzner_controllers}"
 
 for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 1

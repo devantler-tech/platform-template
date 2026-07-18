@@ -6,3 +6,4 @@ resources:
   - ../../../../bases/infrastructure/controllers/coroot/
 components:
   - ../../components/remove-controller-opencost/
+  - ../../components/remove-opencost-references/
