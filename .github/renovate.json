@@ -35,6 +35,18 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) extractVersion=(?<extractVersion>\\S+)\\s+[A-Z][A-Z0-9_]*_VERSION:\\s*\"(?<currentValue>[^\"]+)\""
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "Track Coroot CR image.name pins, which Renovate's Kubernetes manager does not detect.",
+      "fileMatch": [
+        "^k8s/bases/infrastructure/coroot/coroot\\.ya?ml$"
+      ],
+      "matchStrings": [
+        "name:\\s*(?<depName>ghcr\\.io/coroot/[a-z-]+):(?<currentValue>\\S+)"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver"
     }
   ],
   "minor": {

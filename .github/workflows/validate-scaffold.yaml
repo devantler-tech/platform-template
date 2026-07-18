@@ -54,6 +54,12 @@ jobs:
           sudo install /tmp/ksail /usr/local/bin/ksail
           ksail --version
 
+      - name: 🔭 Validate default-off observability option
+        # The staged Coroot/audit-forwarder bases are deliberately absent from
+        # both default overlays, so the ordinary KSail validations below cannot
+        # reach them. Exercise both the default and explicit opt-in renders.
+        run: ./scripts/validate-observability-option.sh
+
       - name: ✅ Validate local manifests
         # ksail workload validate = kustomize build + kubeconform + Flux ${VAR}
         # substitution. A broken kustomization, an invalid resource, or an

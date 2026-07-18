@@ -1,0 +1,57 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-coroot
+  namespace: observability
+spec:
+  endpointSelector: {}
+  ingress:
+    # Coroot, its bundled stores, its agents, and the audit forwarder exchange
+    # telemetry inside this namespace.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+    # The eBPF node agent uses host networking and pushes telemetry to Coroot.
+    - fromEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    # Cluster-agent discovery and Kubernetes inventory.
+    - toEntities:
+        - kube-apiserver
+    # Scrape workloads across namespaces and node-level targets.
+    - toEndpoints:
+        - matchExpressions:
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
+    - toEntities:
+        - host
+        - remote-node
+    # Coroot version checks, registry discovery for optional components, and
+    # its generic cloud-pricing data set.
+    - toFQDNs:
+        - matchName: ghcr.io
+        - matchName: coroot.com
+        - matchName: coroot.github.io
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # DNS resolution also enables Cilium's FQDN proxy for the allow-list above.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
