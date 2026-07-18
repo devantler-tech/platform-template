@@ -83,6 +83,13 @@ host access, the profile also exempts the `observability` namespace from the
 Kyverno host and restricted-pod policies; the default paths keep those policies
 enforced for that namespace.
 
+Open the Coroot UI at `https://observability.<your-domain>`. Community Edition
+does not provide native OIDC, so this profile sends every UI request through the
+existing Dex-backed oauth2-proxy before the in-cluster auth proxy forwards it to
+Coroot. The profile grants Coroot's anonymous Admin role only behind that complete
+SSO path; there is no direct Gateway route to the Coroot service. Returning to the
+default cluster path removes the route and the profile-only Admin role together.
+
 ### 2. Talos machine-config directories
 
 - [`talos-local/`](../talos-local) — Docker-provider patches (local).

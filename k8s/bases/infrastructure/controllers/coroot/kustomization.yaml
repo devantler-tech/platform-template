@@ -8,3 +8,4 @@ resources:
   - cilium-network-policy.yaml
   - helm-repository.yaml
   - helm-release.yaml
+  - http-route.yaml

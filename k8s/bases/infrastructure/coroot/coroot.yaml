@@ -19,8 +19,9 @@ spec:
     name: coroot-api-key
     key: key
 
-  # The generic option has no authenticated ingress boundary. Keep anonymous
-  # access disabled; an instance may opt in only alongside its own auth proxy.
+  # Keep the reusable base unauthenticated-role-free. The explicit Coroot
+  # provider profiles add Admin only through the component that also wires the
+  # complete oauth2-proxy route, grant, and network boundary.
   metricsRefreshInterval: 30s
   cacheTTL: 30d
 
