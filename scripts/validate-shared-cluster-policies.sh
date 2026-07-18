@@ -36,11 +36,22 @@ assert_policy_contract() {
       )] as $policies
       | $policies[0].spec.rules as $rules
       | ($policies | length) == 1
+        and (($policies[0].spec | keys) == ["background", "rules"])
         and ($policies[0].spec.background == false)
         and ([$rules[].name] == [
           "default-install-remediation",
           "default-upgrade-remediation"
         ])
+        and ([$rules[] | keys] == [
+          ["match", "mutate", "name", "preconditions"],
+          ["match", "mutate", "name", "preconditions"]
+        ])
+        and ([$rules[].match | keys] == [["any"], ["any"]])
+        and ([$rules[].mutate | keys] == [
+          ["patchStrategicMerge"],
+          ["patchStrategicMerge"]
+        ])
+        and ([$rules[].preconditions | keys] == [["all"], ["all"]])
         and ($rules[0].match.any == [{
           resources: {
             kinds: ["helm.toolkit.fluxcd.io/v2/HelmRelease"],
@@ -105,6 +116,33 @@ for provider in docker hetzner; do
       "${rendered}" >"${mutated}"
     if assert_policy_contract "${mutated}"; then
       echo "negative control passed after inverting the install-strategy precondition" >&2
+      exit 1
+    fi
+
+    mutated="${tmp_dir}/${provider}-disabled-admission.yaml"
+    yq eval-all \
+      '(select(.apiVersion == "kyverno.io/v1" and .kind == "ClusterPolicy" and .metadata.name == "helm-release-remediation-retries").spec.admission) = false' \
+      "${rendered}" >"${mutated}"
+    if assert_policy_contract "${mutated}"; then
+      echo "negative control passed after disabling admission processing" >&2
+      exit 1
+    fi
+
+    mutated="${tmp_dir}/${provider}-mutate-existing.yaml"
+    yq eval-all \
+      '(select(.apiVersion == "kyverno.io/v1" and .kind == "ClusterPolicy" and .metadata.name == "helm-release-remediation-retries").spec.rules[0].mutate.targets) = [{"apiVersion": "helm.toolkit.fluxcd.io/v2", "kind": "HelmRelease", "name": "sample", "namespace": "default"}]' \
+      "${rendered}" >"${mutated}"
+    if assert_policy_contract "${mutated}"; then
+      echo "negative control passed after enabling mutate-existing targets" >&2
+      exit 1
+    fi
+
+    mutated="${tmp_dir}/${provider}-broadened-match.yaml"
+    yq eval-all \
+      '(select(.apiVersion == "kyverno.io/v1" and .kind == "ClusterPolicy" and .metadata.name == "helm-release-remediation-retries").spec.rules[0].match.resources.kinds) = ["helm.toolkit.fluxcd.io/v2/HelmRelease"]' \
+      "${rendered}" >"${mutated}"
+    if assert_policy_contract "${mutated}"; then
+      echo "negative control passed after adding a sibling match.resources selector" >&2
       exit 1
     fi
   fi
