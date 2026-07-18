@@ -219,6 +219,32 @@ assert_namespace_not_excluded_from_policy() {
   fi
 }
 
+assert_security_exception_namespace_count() {
+  local rendered_path="$1"
+  local exception_name="$2"
+  local namespace="$3"
+  local expected="$4"
+  local actual
+
+  assert_resource_count "${rendered_path}" ClusterSecurityException "" "${exception_name}" 1
+  actual="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s -r \
+        --arg exception_name "${exception_name}" \
+        --arg namespace "${namespace}" \
+        '[.[] |
+          select(type == "object" and .kind == "ClusterSecurityException" and .metadata.name == $exception_name) |
+          .spec.match.namespaceSelector.matchExpressions[]? |
+          select(.key == "kubernetes.io/metadata.name" and .operator == "In") |
+          .values[]? |
+          select(. == $namespace)] | length'
+  )"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "expected ${expected} ${exception_name} Kubescape exception(s) for namespace ${namespace} in ${rendered_path}, found ${actual}" >&2
+    return 1
+  fi
+}
+
 local_controllers_default="${tmp_dir}/local-controllers-default.yaml"
 local_infrastructure_default="${tmp_dir}/local-infrastructure-default.yaml"
 local_apps_default="${tmp_dir}/local-apps-default.yaml"
@@ -290,6 +316,9 @@ for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_de
   assert_namespace_not_excluded_from_policy "${rendered_path}" add-security-context observability
   assert_namespace_not_excluded_from_policy "${rendered_path}" validate-host-restrictions observability
   assert_namespace_not_excluded_from_policy "${rendered_path}" validate-pod-security observability
+  assert_security_exception_namespace_count "${rendered_path}" infrastructure-privileged observability 0
+  assert_security_exception_namespace_count "${rendered_path}" controller-rbac observability 0
+  assert_security_exception_namespace_count "${rendered_path}" service-account-tokens observability 0
 done
 assert_opencost_reference_count "${local_apps_default}" 1
 assert_opencost_reference_count "${prod_apps_default}" 1
@@ -316,6 +345,10 @@ for rendered_path in "${docker_infrastructure}" "${hetzner_infrastructure}"; do
   assert_namespace_excluded_from_all_policy_rules "${rendered_path}" add-security-context observability
   assert_namespace_excluded_from_all_policy_rules "${rendered_path}" validate-host-restrictions observability
   assert_namespace_excluded_from_all_policy_rules "${rendered_path}" validate-pod-security observability
+  assert_security_exception_namespace_count "${rendered_path}" infrastructure-privileged observability 1
+  assert_security_exception_namespace_count "${rendered_path}" controller-rbac observability 1
+  assert_security_exception_namespace_count "${rendered_path}" service-account-tokens observability 1
+  assert_security_exception_namespace_count "${rendered_path}" health-probes observability 0
 done
 
 assert_resource_count "${docker_infrastructure}" HelmRelease observability coroot-operator 0
@@ -393,9 +426,20 @@ if ! grep -Fq "${coroot_api_expression}" "${hetzner_infrastructure}" || ! grep -
 fi
 
 templating_guide="${repo_root}/docs/TEMPLATING.md"
-for documented_value in clusters/local-coroot clusters/prod-coroot spec.workload.kustomizationFile; do
+for documented_value in \
+  clusters/local-coroot \
+  clusters/prod-coroot \
+  spec.workload.kustomizationFile; do
   if ! grep -Fq "${documented_value}" "${templating_guide}"; then
     echo "templating guide does not document Coroot opt-in value ${documented_value}" >&2
+    exit 1
+  fi
+done
+templating_flat="$(tr '\n' '|' <"${templating_guide}")"
+for config_path in ksail.yaml ksail.prod.yaml; do
+  expected_sequence="ksail --config ${config_path} workload push|ksail --config ${config_path} cluster update|ksail --config ${config_path} workload reconcile"
+  if [[ "${templating_flat}" != *"${expected_sequence}"* ]]; then
+    echo "templating guide does not document publish, path update, and reconciliation in order for ${config_path}" >&2
     exit 1
   fi
 done

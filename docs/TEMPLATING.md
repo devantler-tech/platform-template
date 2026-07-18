@@ -56,6 +56,23 @@ The KSail configs belong to the instance and are excluded from template sync, so
 the choice persists when shared platform files update. To return to the default,
 restore `clusters/local` or `clusters/prod`.
 
+After selecting or reverting the profile, publish the payload, update the
+FluxInstance sync path, and then ask Flux to reconcile it. Neither `cluster
+update` alone nor `workload push` plus `workload reconcile` alone completes all
+three steps:
+
+```bash
+# local / Docker
+ksail --config ksail.yaml workload push
+ksail --config ksail.yaml cluster update
+ksail --config ksail.yaml workload reconcile
+
+# prod / Hetzner
+ksail --config ksail.prod.yaml workload push
+ksail --config ksail.prod.yaml cluster update
+ksail --config ksail.prod.yaml workload reconcile
+```
+
 This profile is transitional. It enables Coroot, removes OpenCost and its Headlamp
 plugin, and keeps the legacy Prometheus, Loki, and Alloy stack while later template
 updates finish the migration. Cost allocation is therefore unavailable in this
@@ -65,9 +82,6 @@ audit logs. Because Coroot's eBPF agent and the production audit collector need
 host access, the profile also exempts the `observability` namespace from the
 Kyverno host and restricted-pod policies; the default paths keep those policies
 enforced for that namespace.
-
-**To change after bootstrap:** edit `ksail.prod.yaml` and run
-`ksail --config ksail.prod.yaml cluster update`.
 
 ### 2. Talos machine-config directories
 
