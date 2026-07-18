@@ -330,6 +330,25 @@ render k8s/providers/hetzner/infrastructure-controllers-coroot/ "${hetzner_contr
 render k8s/providers/hetzner/infrastructure-coroot/ "${hetzner_infrastructure}"
 render k8s/providers/hetzner/apps-coroot/ "${hetzner_apps}"
 
+# The Coroot option replaces the legacy audit-only Alloy collector only on the
+# production profile, where audit-log-forwarder reads the same Talos audit
+# files. Defaults and Docker keep their existing payloads, and the main Alloy
+# pod-log shipper remains present in every controller profile.
+for rendered_path in \
+  "${local_controllers_default}" \
+  "${prod_controllers_default}" \
+  "${docker_controllers}"; do
+  assert_resource_count "${rendered_path}" HelmRelease monitoring alloy-audit 1
+done
+assert_resource_count "${hetzner_controllers}" HelmRelease monitoring alloy-audit 0
+for rendered_path in \
+  "${local_controllers_default}" \
+  "${prod_controllers_default}" \
+  "${docker_controllers}" \
+  "${hetzner_controllers}"; do
+  assert_resource_count "${rendered_path}" HelmRelease monitoring alloy 1
+done
+
 assert_auth_proxy_without_opencost "${local_controllers_default}" "${docker_controllers}"
 assert_auth_proxy_without_opencost "${prod_controllers_default}" "${hetzner_controllers}"
 
