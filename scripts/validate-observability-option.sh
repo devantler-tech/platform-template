@@ -90,6 +90,7 @@ assert_default_off() {
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 0
+  assert_resource_count "${rendered_path}" HTTPRoute observability coroot 0
 }
 
 assert_opencost_present() {
@@ -137,7 +138,7 @@ assert_opencost_absent() {
   fi
 }
 
-assert_auth_proxy_without_opencost() {
+assert_auth_proxy_with_coroot() {
   local default_rendered_path="$1"
   local opt_in_rendered_path="$2"
   local expected
@@ -145,14 +146,123 @@ assert_auth_proxy_without_opencost() {
 
   expected="$(
     yq eval-all -o=json 'select(.kind == "ConfigMap" and .metadata.namespace == "oauth2-proxy" and .metadata.name == "auth-proxy-config") | .data."dynamic.yaml" | from_yaml' "${default_rendered_path}" |
-      jq -S -c 'del(.http.routers.opencost, .http.services.opencost)'
+      jq -S -c '
+        del(.http.routers.opencost, .http.services.opencost) |
+        .http.routers.coroot = {
+          rule: "Host(`observability.${domain}`)",
+          entryPoints: ["web"],
+          service: "coroot"
+        } |
+        .http.services.coroot = {
+          loadBalancer: {
+            servers: [
+              {url: "http://coroot-coroot.observability.svc.cluster.local:8080"}
+            ]
+          }
+        }'
   )"
   actual="$(
     yq eval-all -o=json 'select(.kind == "ConfigMap" and .metadata.namespace == "oauth2-proxy" and .metadata.name == "auth-proxy-config") | .data."dynamic.yaml" | from_yaml' "${opt_in_rendered_path}" |
       jq -S -c '.'
   )"
   if [[ "${actual}" != "${expected}" ]]; then
-    echo "opt-in auth-proxy config must equal its provider default minus the OpenCost router and service" >&2
+    echo "opt-in auth-proxy config must replace OpenCost with the authenticated Coroot UI" >&2
+    return 1
+  fi
+}
+
+assert_coroot_sso_controller_contract() {
+  local rendered_path="$1"
+  local route_contract
+  local grant_contract
+  local proxy_egress_contract
+  local coroot_ingress_contract
+
+  route_contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "HTTPRoute" and .metadata.namespace == "observability" and .metadata.name == "coroot") |
+        select(.spec.hostnames == ["observability.${domain}"]) |
+        select(.spec.rules | length == 1) |
+        select(.spec.rules[0].backendRefs == [{"name":"oauth2-proxy","namespace":"oauth2-proxy","port":80}]) |
+        select(any(.spec.rules[0].filters[]?;
+          .type == "RequestHeaderModifier" and
+          any(.requestHeaderModifier.set[]?;
+            .name == "X-Auth-Request-Redirect" and .value == "https://observability.${domain}/"))) |
+        select(any(.spec.rules[0].filters[]?;
+          .type == "ResponseHeaderModifier" and
+          any(.responseHeaderModifier.set[]?;
+            .name == "Strict-Transport-Security" and
+            .value == "max-age=63072000; includeSubDomains; preload")))] | length'
+  )"
+  grant_contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "ReferenceGrant" and .metadata.namespace == "oauth2-proxy" and .metadata.name == "allow-oauth2-proxy-backends") |
+        select([.spec.from[]? | select(.namespace == "observability")] ==
+          [{"group":"gateway.networking.k8s.io","kind":"HTTPRoute","namespace":"observability"}]) |
+        select(.spec.to == [{"group":"","kind":"Service","name":"oauth2-proxy"}])] | length'
+  )"
+  proxy_egress_contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "oauth2-proxy" and .metadata.name == "allow-auth-proxy") |
+        .spec.egress[]? |
+        select(.toEndpoints == [{"matchLabels":{
+          "app.kubernetes.io/component":"coroot",
+          "app.kubernetes.io/part-of":"coroot",
+          "k8s:io.kubernetes.pod.namespace":"observability"}}]) |
+        select(.toPorts == [{"ports":[{"port":"8080","protocol":"TCP"}]}])] | length'
+  )"
+  coroot_ingress_contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") |
+        .spec.ingress[]? |
+        select(.fromEndpoints == [{"matchLabels":{
+          "app":"auth-proxy",
+          "k8s:io.kubernetes.pod.namespace":"oauth2-proxy"}}]) |
+        select(.toPorts == [{"ports":[{"port":"8080","protocol":"TCP"}]}])] | length'
+  )"
+
+  if [[ "${route_contract}" != "1" ]]; then
+    echo "Coroot option must expose exactly one HSTS route through oauth2-proxy" >&2
+    return 1
+  fi
+  if [[ "${grant_contract}" != "1" ]]; then
+    echo "Coroot option must grant only the observability HTTPRoute access to oauth2-proxy" >&2
+    return 1
+  fi
+  if [[ "${proxy_egress_contract}" != "1" ]]; then
+    echo "auth-proxy must have one Coroot-specific TCP/8080 egress path" >&2
+    return 1
+  fi
+  if [[ "${coroot_ingress_contract}" != "1" ]]; then
+    echo "Coroot must admit one auth-proxy-specific TCP/8080 ingress path" >&2
+    return 1
+  fi
+}
+
+assert_coroot_admin_role() {
+  local rendered_path="$1"
+  local expected="$2"
+  local actual
+  local any_role
+
+  actual="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") |
+        select(.spec.authAnonymousRole == "Admin")] | length'
+  )"
+  any_role="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") |
+        select(.spec | has("authAnonymousRole"))] | length'
+  )"
+  if [[ "${actual}" != "${expected}" || "${any_role}" != "${expected}" ]]; then
+    echo "expected ${expected} Coroot Admin-only role(s) behind the SSO profile in ${rendered_path}, found Admin=${actual} any=${any_role}" >&2
     return 1
   fi
 }
@@ -261,6 +371,7 @@ docker_apps="${tmp_dir}/docker-apps.yaml"
 hetzner_controllers="${tmp_dir}/hetzner-controllers.yaml"
 hetzner_infrastructure="${tmp_dir}/hetzner-infrastructure.yaml"
 hetzner_apps="${tmp_dir}/hetzner-apps.yaml"
+coroot_base="${tmp_dir}/coroot-base.yaml"
 coroot_api_expression="\${env:COROOT_API_KEY}"
 node_name_expression="\${env:K8S_NODE_NAME}"
 
@@ -329,6 +440,7 @@ render k8s/providers/docker/apps-coroot/ "${docker_apps}"
 render k8s/providers/hetzner/infrastructure-controllers-coroot/ "${hetzner_controllers}"
 render k8s/providers/hetzner/infrastructure-coroot/ "${hetzner_infrastructure}"
 render k8s/providers/hetzner/apps-coroot/ "${hetzner_apps}"
+render k8s/bases/infrastructure/coroot/ "${coroot_base}"
 
 # The Coroot option replaces the legacy audit-only Alloy collector only on the
 # production profile, where audit-log-forwarder reads the same Talos audit
@@ -349,8 +461,8 @@ for rendered_path in \
   assert_resource_count "${rendered_path}" HelmRelease monitoring alloy 1
 done
 
-assert_auth_proxy_without_opencost "${local_controllers_default}" "${docker_controllers}"
-assert_auth_proxy_without_opencost "${prod_controllers_default}" "${hetzner_controllers}"
+assert_auth_proxy_with_coroot "${local_controllers_default}" "${docker_controllers}"
+assert_auth_proxy_with_coroot "${prod_controllers_default}" "${hetzner_controllers}"
 
 for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 1
@@ -358,6 +470,7 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 1
   assert_opencost_absent "${rendered_path}"
+  assert_coroot_sso_controller_contract "${rendered_path}"
 done
 
 for rendered_path in "${docker_infrastructure}" "${hetzner_infrastructure}"; do
@@ -381,6 +494,9 @@ assert_resource_count "${hetzner_infrastructure}" HelmRelease observability audi
 assert_opencost_absent "${hetzner_infrastructure}"
 assert_opencost_absent "${docker_apps}"
 assert_opencost_absent "${hetzner_apps}"
+assert_coroot_admin_role "${coroot_base}" 0
+assert_coroot_admin_role "${docker_infrastructure}" 1
+assert_coroot_admin_role "${hetzner_infrastructure}" 1
 
 coroot_key_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
@@ -389,10 +505,6 @@ coroot_key_contract="$(
 coroot_agent_key_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
     jq -s '[.[] | select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") | .spec.apiKeySecret | select(.name == "coroot-api-key" and .key == "key")] | length'
-)"
-anonymous_role_contract="$(
-  yq eval-all -o=json '.' "${docker_infrastructure}" "${hetzner_infrastructure}" |
-    jq -s '[.[] | select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") | select(.spec | has("authAnonymousRole"))] | length'
 )"
 forwarder_key_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
@@ -425,10 +537,6 @@ renovate_coroot_manager="$(
 
 if [[ "${coroot_key_contract}" != "1" || "${coroot_agent_key_contract}" != "1" || "${forwarder_key_contract}" != "1" ]]; then
   echo "Coroot projects, bundled agents, and audit-log-forwarder do not share the coroot-api-key/key Secret contract" >&2
-  exit 1
-fi
-if [[ "${anonymous_role_contract}" != "0" ]]; then
-  echo "generic Coroot option must not grant an anonymous role; instances may opt in behind their own authentication boundary" >&2
   exit 1
 fi
 if [[ "${substitution_disabled}" != "true" ]]; then
@@ -481,7 +589,11 @@ done
 for documented_boundary in \
   "This profile is transitional." \
   "removes OpenCost and its Headlamp" \
-  "Cost allocation is therefore unavailable"; do
+  "Cost allocation is therefore unavailable" \
+  "https://observability.<your-domain>" \
+  "Dex-backed oauth2-proxy" \
+  "no direct Gateway route to the Coroot service" \
+  "removes the route and the profile-only Admin role together"; do
   if ! grep -Fq "${documented_boundary}" "${templating_guide}"; then
     echo "templating guide does not retain Coroot boundary: ${documented_boundary}" >&2
     exit 1

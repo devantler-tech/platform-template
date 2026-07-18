@@ -1,9 +1,10 @@
 ---
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
-# Migrate cross-namespace consumers and exemptions alongside the explicit
-# Coroot profiles' OpenCost workload retirement. Targets absent from a layer
-# are ignored; the executable contract rejects any surviving reference.
+# Replace cross-namespace OpenCost consumers with the explicit Coroot profiles'
+# authenticated UI path, and migrate their security exemptions. Targets absent
+# from a layer are ignored; the executable contract rejects surviving OpenCost
+# references or an incomplete oauth2-proxy boundary.
 patches:
   - target:
       group: helm.toolkit.fluxcd.io
@@ -59,6 +60,52 @@ patches:
       name: auth-proxy-config
       namespace: oauth2-proxy
     patch: |
+      - op: test
+        path: /data/dynamic.yaml
+        value: |
+          http:
+            routers:
+              homepage:
+                rule: "Host(`${domain}`)"
+                entryPoints: ["web"]
+                service: homepage
+              hubble:
+                rule: "Host(`hubble.${domain}`)"
+                entryPoints: ["web"]
+                service: hubble-ui
+              prometheus:
+                rule: "Host(`prometheus.${domain}`)"
+                entryPoints: ["web"]
+                service: prometheus
+              alertmanager:
+                rule: "Host(`alertmanager.${domain}`)"
+                entryPoints: ["web"]
+                service: alertmanager
+              opencost:
+                rule: "Host(`opencost.${domain}`)"
+                entryPoints: ["web"]
+                service: opencost
+            services:
+              homepage:
+                loadBalancer:
+                  servers:
+                    - url: "http://homepage.homepage.svc.cluster.local:80"
+              hubble-ui:
+                loadBalancer:
+                  servers:
+                    - url: "http://keda-add-ons-http-interceptor-proxy.keda.svc.cluster.local:8080"
+              prometheus:
+                loadBalancer:
+                  servers:
+                    - url: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
+              alertmanager:
+                loadBalancer:
+                  servers:
+                    - url: "http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093"
+              opencost:
+                loadBalancer:
+                  servers:
+                    - url: "http://opencost.opencost.svc.cluster.local:9090"
       - op: replace
         path: /data/dynamic.yaml
         value: |
@@ -80,6 +127,10 @@ patches:
                 rule: "Host(`alertmanager.${domain}`)"
                 entryPoints: ["web"]
                 service: alertmanager
+              coroot:
+                rule: "Host(`observability.${domain}`)"
+                entryPoints: ["web"]
+                service: coroot
             services:
               homepage:
                 loadBalancer:
@@ -100,6 +151,11 @@ patches:
                   servers:
                     - url: >-
                         http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093
+              coroot:
+                loadBalancer:
+                  servers:
+                    - url: >-
+                        http://coroot-coroot.observability.svc.cluster.local:8080
   - target:
       group: cilium.io
       version: v2
@@ -117,8 +173,59 @@ patches:
             - ports:
                 - port: "9090"
                   protocol: TCP
-      - op: remove
+      - op: replace
         path: /spec/egress/3
+        value:
+          toEndpoints:
+            - matchLabels:
+                app.kubernetes.io/component: coroot
+                app.kubernetes.io/part-of: coroot
+                k8s:io.kubernetes.pod.namespace: observability
+          toPorts:
+            - ports:
+                - port: "8080"
+                  protocol: TCP
+  - target:
+      group: cilium.io
+      version: v2
+      kind: CiliumNetworkPolicy
+      name: allow-coroot
+      namespace: observability
+    patch: |
+      - op: test
+        path: /spec/ingress
+        value:
+          - fromEndpoints:
+              - matchLabels:
+                  k8s:io.kubernetes.pod.namespace: observability
+          - fromEntities:
+              - host
+              - remote-node
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+      - op: replace
+        path: /spec/ingress
+        value:
+          - fromEndpoints:
+              - matchLabels:
+                  k8s:io.kubernetes.pod.namespace: observability
+          - fromEntities:
+              - host
+              - remote-node
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+          - fromEndpoints:
+              - matchLabels:
+                  app: auth-proxy
+                  k8s:io.kubernetes.pod.namespace: oauth2-proxy
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
   - target:
       group: cilium.io
       version: v2
@@ -151,8 +258,25 @@ patches:
           group: gateway.networking.k8s.io
           kind: HTTPRoute
           namespace: opencost
-      - op: remove
+      - op: replace
         path: /spec/from/4
+        value:
+          group: gateway.networking.k8s.io
+          kind: HTTPRoute
+          namespace: observability
+  - target:
+      group: coroot.com
+      version: v1
+      kind: Coroot
+      name: coroot
+      namespace: observability
+    patch: |
+      - op: test
+        path: /spec/metricsRefreshInterval
+        value: 30s
+      - op: add
+        path: /spec/authAnonymousRole
+        value: Admin
   - target:
       group: kubescape.io
       version: v1beta1
