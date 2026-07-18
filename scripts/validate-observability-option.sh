@@ -107,6 +107,10 @@ coroot_agent_key_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
     jq -s '[.[] | select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") | .spec.apiKeySecret | select(.name == "coroot-api-key" and .key == "key")] | length'
 )"
+anonymous_role_contract="$(
+  yq eval-all -o=json '.' "${docker_infrastructure}" "${hetzner_infrastructure}" |
+    jq -s '[.[] | select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") | select(.spec | has("authAnonymousRole"))] | length'
+)"
 forwarder_key_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
     jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "observability" and .metadata.name == "audit-log-forwarder") | .spec.values.extraEnvs[]? | select(.name == "COROOT_API_KEY") | .valueFrom.secretKeyRef | select(.name == "coroot-api-key" and .key == "key")] | length'
@@ -130,6 +134,10 @@ renovate_coroot_manager="$(
 
 if [[ "${coroot_key_contract}" != "1" || "${coroot_agent_key_contract}" != "1" || "${forwarder_key_contract}" != "1" ]]; then
   echo "Coroot projects, bundled agents, and audit-log-forwarder do not share the coroot-api-key/key Secret contract" >&2
+  exit 1
+fi
+if [[ "${anonymous_role_contract}" != "0" ]]; then
+  echo "generic Coroot option must not grant an anonymous role; instances may opt in behind their own authentication boundary" >&2
   exit 1
 fi
 if [[ "${substitution_disabled}" != "true" ]]; then

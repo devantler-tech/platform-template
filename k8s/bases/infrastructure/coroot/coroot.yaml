@@ -4,10 +4,11 @@ metadata:
   name: coroot
   namespace: observability
 spec:
-  # Pin every registry-discovered Coroot component image. The pinned operator
-  # chart fixes its bundled Prometheus, ClickHouse, and Keeper versions; only
-  # these three independently released first-party components float when their
-  # image.name is empty.
+  # Pin every registry-discovered Coroot component image. In operator v1.9.5,
+  # controller/versions.go and controller/registry.go resolve only these three
+  # independently released components. Prometheus, ClickHouse, and Keeper are
+  # fixed operator constants, while the enabled cluster agent provides the
+  # inventory path instead of the schema's optional kube-state-metrics image.
   communityEdition:
     image:
       name: ghcr.io/coroot/coroot:1.22.2
@@ -18,7 +19,8 @@ spec:
     name: coroot-api-key
     key: key
 
-  authAnonymousRole: Admin
+  # The generic option has no authenticated ingress boundary. Keep anonymous
+  # access disabled; an instance may opt in only alongside its own auth proxy.
   metricsRefreshInterval: 30s
   cacheTTL: 30d
 
