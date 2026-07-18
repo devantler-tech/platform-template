@@ -15,6 +15,8 @@ resources:
   - flux/helm-release-enable-tests.yaml
   - flux/helm-release-install-crds.yaml
   - flux/helm-release-remediation-retries.yaml
+  # Shared catalog policies (immutable pins; update manually after review)
+  - https://raw.githubusercontent.com/devantler-tech/kyverno-policies/ffff4f152f3efd940cc78d56d257925592409ce1/policies/best-practices/disallow-latest-tag.yaml
   # Upstream kyverno/policies (synced via reusable-workflows, patched below)
   - samples/best-practices/add-ns-quota/add-ns-quota.yaml
   - samples/other/create-pod-antiaffinity/create-pod-antiaffinity.yaml
