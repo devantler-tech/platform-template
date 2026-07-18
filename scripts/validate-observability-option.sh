@@ -27,7 +27,14 @@ resource_count() {
       --arg kind "${kind}" \
       --arg namespace "${namespace}" \
       --arg name "${name}" \
-      '[.[] | select(type == "object" and .kind == $kind and .metadata.namespace == $namespace and .metadata.name == $name)] | length'
+      '[.[] | select(type == "object" and .kind == $kind and (.metadata.namespace // "") == $namespace and .metadata.name == $name)] | length'
+}
+
+opencost_resource_count() {
+  local rendered_path="$1"
+
+  yq eval-all -o=json '.' "${rendered_path}" |
+    jq -s '[.[] | select(type == "object" and ((.kind == "Namespace" and .metadata.name == "opencost") or .metadata.namespace == "opencost"))] | length'
 }
 
 assert_resource_count() {
@@ -52,6 +59,27 @@ assert_default_off() {
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 0
+}
+
+assert_opencost_present() {
+  local rendered_path="$1"
+
+  assert_resource_count "${rendered_path}" Namespace "" opencost 1
+  assert_resource_count "${rendered_path}" HelmRepository opencost opencost 1
+  assert_resource_count "${rendered_path}" HelmRelease opencost opencost 1
+  assert_resource_count "${rendered_path}" HTTPRoute opencost opencost 1
+  assert_resource_count "${rendered_path}" CiliumNetworkPolicy opencost allow-opencost 1
+}
+
+assert_opencost_absent() {
+  local rendered_path="$1"
+  local actual
+
+  actual="$(opencost_resource_count "${rendered_path}")"
+  if [[ "${actual}" != "0" ]]; then
+    echo "expected no OpenCost resources in ${rendered_path}, found ${actual}" >&2
+    return 1
+  fi
 }
 
 local_controllers_default="${tmp_dir}/local-controllers-default.yaml"
@@ -79,14 +107,13 @@ for rendered_path in \
   assert_default_off "${rendered_path}"
 done
 
-# The default provider payloads still use the legacy kube-prometheus-backed
-# OpenCost release. This staged slice must not activate or relocate it outside
-# the explicit opt-in fixtures.
+# The default provider payloads retain the complete legacy OpenCost surface.
+# Only the explicit Coroot fixtures stage its retirement.
 for rendered_path in "${local_controllers_default}" "${prod_controllers_default}"; do
-  assert_resource_count "${rendered_path}" HelmRelease opencost opencost 1
+  assert_opencost_present "${rendered_path}"
 done
 for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_default}"; do
-  assert_resource_count "${rendered_path}" HelmRelease opencost opencost 0
+  assert_opencost_absent "${rendered_path}"
 done
 
 render k8s/testdata/observability-option/docker/controllers/ "${docker_controllers}"
@@ -99,18 +126,18 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 1
-  assert_resource_count "${rendered_path}" HelmRelease opencost opencost 0
+  assert_opencost_absent "${rendered_path}"
 done
 
 assert_resource_count "${docker_infrastructure}" HelmRelease observability coroot-operator 0
 assert_resource_count "${docker_infrastructure}" Coroot observability coroot 1
 assert_resource_count "${docker_infrastructure}" HelmRelease observability audit-log-forwarder 0
-assert_resource_count "${docker_infrastructure}" HelmRelease opencost opencost 1
+assert_opencost_absent "${docker_infrastructure}"
 
 assert_resource_count "${hetzner_infrastructure}" HelmRelease observability coroot-operator 0
 assert_resource_count "${hetzner_infrastructure}" Coroot observability coroot 1
 assert_resource_count "${hetzner_infrastructure}" HelmRelease observability audit-log-forwarder 1
-assert_resource_count "${hetzner_infrastructure}" HelmRelease opencost opencost 1
+assert_opencost_absent "${hetzner_infrastructure}"
 
 coroot_key_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
@@ -127,34 +154,6 @@ anonymous_role_contract="$(
 forwarder_key_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
     jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "observability" and .metadata.name == "audit-log-forwarder") | .spec.values.extraEnvs[]? | select(.name == "COROOT_API_KEY") | .valueFrom.secretKeyRef | select(.name == "coroot-api-key" and .key == "key")] | length'
-)"
-opencost_dependency_contract="$(
-  yq eval-all -o=json '.' "${docker_infrastructure}" "${hetzner_infrastructure}" |
-    jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "opencost" and .metadata.name == "opencost") | select((.spec.dependsOn | length) == 1 and .spec.dependsOn[0].name == "coroot-operator" and .spec.dependsOn[0].namespace == "observability")] | length'
-)"
-opencost_prometheus_contract="$(
-  yq eval-all -o=json '.' "${docker_infrastructure}" "${hetzner_infrastructure}" |
-    jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "opencost" and .metadata.name == "opencost") | select(.spec.values.opencost.prometheus.external.url == "http://coroot-prometheus.observability.svc.cluster.local:9090")] | length'
-)"
-opencost_service_monitor_disabled="$(
-  yq eval-all -o=json '.' "${docker_infrastructure}" "${hetzner_infrastructure}" |
-    jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "opencost" and .metadata.name == "opencost") | select(.spec.values.opencost.metrics.serviceMonitor.enabled == false)] | length'
-)"
-opencost_legacy_backend_count="$(
-  yq eval-all -o=json '.' "${docker_infrastructure}" "${hetzner_infrastructure}" |
-    jq -s '[.[] | select(.kind == "HelmRelease" and .metadata.namespace == "opencost" and .metadata.name == "opencost") | .spec.values.opencost.prometheus.external.url | select(type == "string" and contains("kube-prometheus-stack"))] | length'
-)"
-opencost_coroot_egress_contract="$(
-  yq eval-all -o=json '.' "${docker_infrastructure}" "${hetzner_infrastructure}" |
-    jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "opencost" and .metadata.name == "allow-opencost") | select(any(.spec.egress[]?.toEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "observability"))] | length'
-)"
-opencost_legacy_egress_count="$(
-  yq eval-all -o=json '.' "${docker_infrastructure}" "${hetzner_infrastructure}" |
-    jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "opencost" and .metadata.name == "allow-opencost") | select(any(.spec.egress[]?.toEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "monitoring"))] | length'
-)"
-opencost_legacy_ingress_count="$(
-  yq eval-all -o=json '.' "${docker_infrastructure}" "${hetzner_infrastructure}" |
-    jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "opencost" and .metadata.name == "allow-opencost") | select(any(.spec.ingress[]?.fromEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "monitoring"))] | length'
 )"
 substitution_disabled="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
@@ -175,10 +174,6 @@ renovate_coroot_manager="$(
 
 if [[ "${coroot_key_contract}" != "1" || "${coroot_agent_key_contract}" != "1" || "${forwarder_key_contract}" != "1" ]]; then
   echo "Coroot projects, bundled agents, and audit-log-forwarder do not share the coroot-api-key/key Secret contract" >&2
-  exit 1
-fi
-if [[ "${opencost_dependency_contract}" != "2" || "${opencost_prometheus_contract}" != "2" || "${opencost_service_monitor_disabled}" != "2" || "${opencost_legacy_backend_count}" != "0" || "${opencost_coroot_egress_contract}" != "2" || "${opencost_legacy_egress_count}" != "0" || "${opencost_legacy_ingress_count}" != "0" ]]; then
-  echo "opt-in OpenCost must run in the infrastructure layer against Coroot Prometheus without a ServiceMonitor or obsolete monitoring access" >&2
   exit 1
 fi
 if [[ "${anonymous_role_contract}" != "0" ]]; then

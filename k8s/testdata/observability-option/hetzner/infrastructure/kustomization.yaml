@@ -1,8 +1,6 @@
----
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../../../providers/hetzner/infrastructure/
   - ../../../../bases/infrastructure/coroot/
-  - ../../../../bases/infrastructure/opencost/
   - ../../../../bases/infrastructure/audit-log-forwarder/

@@ -1,6 +1,0 @@
----
-- op: remove
-  path: /spec/ingress/0
-- op: replace
-  path: /spec/egress/1/toEndpoints/0/matchLabels/k8s:io.kubernetes.pod.namespace
-  value: observability
