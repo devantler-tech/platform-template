@@ -5,4 +5,5 @@ resources:
   - ../infrastructure/
   - ../../../bases/infrastructure/coroot/
 components:
+  - ../../../components/observability-coroot/allow-host-access/
   - ../../../components/observability-coroot/remove-opencost-references/

@@ -157,6 +157,68 @@ assert_auth_proxy_without_opencost() {
   fi
 }
 
+policy_rules_without_namespace_exclusion() {
+  local rendered_path="$1"
+  local policy_name="$2"
+  local namespace="$3"
+
+  yq eval-all -o=json '.' "${rendered_path}" |
+    jq -s -r \
+      --arg policy_name "${policy_name}" \
+      --arg namespace "${namespace}" \
+      '[.[] | select(type == "object" and .kind == "ClusterPolicy" and .metadata.name == $policy_name)] as $policies |
+       if ($policies | length) != 1 then
+         "invalid-policy-count:\($policies | length)"
+       else
+         [$policies[0].spec.rules[] |
+          select(([.exclude.any[]?.resources.namespaces[]?] | index($namespace)) == null)] | length
+       end'
+}
+
+policy_rules_with_namespace_exclusion() {
+  local rendered_path="$1"
+  local policy_name="$2"
+  local namespace="$3"
+
+  yq eval-all -o=json '.' "${rendered_path}" |
+    jq -s -r \
+      --arg policy_name "${policy_name}" \
+      --arg namespace "${namespace}" \
+      '[.[] | select(type == "object" and .kind == "ClusterPolicy" and .metadata.name == $policy_name)] as $policies |
+       if ($policies | length) != 1 then
+         "invalid-policy-count:\($policies | length)"
+       else
+         [$policies[0].spec.rules[] |
+          select(([.exclude.any[]?.resources.namespaces[]?] | index($namespace)) != null)] | length
+       end'
+}
+
+assert_namespace_excluded_from_all_policy_rules() {
+  local rendered_path="$1"
+  local policy_name="$2"
+  local namespace="$3"
+  local actual
+
+  actual="$(policy_rules_without_namespace_exclusion "${rendered_path}" "${policy_name}" "${namespace}")"
+  if [[ "${actual}" != "0" ]]; then
+    echo "expected ClusterPolicy/${policy_name} to exclude namespace ${namespace} from every rule in ${rendered_path}, found ${actual} unprotected rule(s)" >&2
+    return 1
+  fi
+}
+
+assert_namespace_not_excluded_from_policy() {
+  local rendered_path="$1"
+  local policy_name="$2"
+  local namespace="$3"
+  local actual
+
+  actual="$(policy_rules_with_namespace_exclusion "${rendered_path}" "${policy_name}" "${namespace}")"
+  if [[ "${actual}" != "0" ]]; then
+    echo "expected ClusterPolicy/${policy_name} to keep namespace ${namespace} enforced in ${rendered_path}, found ${actual} excluded rule(s)" >&2
+    return 1
+  fi
+}
+
 local_controllers_default="${tmp_dir}/local-controllers-default.yaml"
 local_infrastructure_default="${tmp_dir}/local-infrastructure-default.yaml"
 local_apps_default="${tmp_dir}/local-apps-default.yaml"
@@ -225,6 +287,9 @@ for rendered_path in "${local_controllers_default}" "${prod_controllers_default}
 done
 for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_default}"; do
   assert_opencost_resources_absent "${rendered_path}"
+  assert_namespace_not_excluded_from_policy "${rendered_path}" add-security-context observability
+  assert_namespace_not_excluded_from_policy "${rendered_path}" validate-host-restrictions observability
+  assert_namespace_not_excluded_from_policy "${rendered_path}" validate-pod-security observability
 done
 assert_opencost_reference_count "${local_apps_default}" 1
 assert_opencost_reference_count "${prod_apps_default}" 1
@@ -245,6 +310,12 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 1
   assert_opencost_absent "${rendered_path}"
+done
+
+for rendered_path in "${docker_infrastructure}" "${hetzner_infrastructure}"; do
+  assert_namespace_excluded_from_all_policy_rules "${rendered_path}" add-security-context observability
+  assert_namespace_excluded_from_all_policy_rules "${rendered_path}" validate-host-restrictions observability
+  assert_namespace_excluded_from_all_policy_rules "${rendered_path}" validate-pod-security observability
 done
 
 assert_resource_count "${docker_infrastructure}" HelmRelease observability coroot-operator 0

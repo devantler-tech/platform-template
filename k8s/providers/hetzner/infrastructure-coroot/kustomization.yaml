@@ -6,4 +6,5 @@ resources:
   - ../../../bases/infrastructure/coroot/
   - ../../../bases/infrastructure/audit-log-forwarder/
 components:
+  - ../../../components/observability-coroot/allow-host-access/
   - ../../../components/observability-coroot/remove-opencost-references/

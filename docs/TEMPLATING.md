@@ -61,7 +61,10 @@ plugin, and keeps the legacy Prometheus, Loki, and Alloy stack while later templ
 updates finish the migration. Cost allocation is therefore unavailable in this
 profile; it does not connect OpenCost to Coroot Prometheus. Docker runs Coroot
 without the audit log forwarder, while Hetzner includes the forwarder for host
-audit logs.
+audit logs. Because Coroot's eBPF agent and the production audit collector need
+host access, the profile also exempts the `observability` namespace from the
+Kyverno host and restricted-pod policies; the default paths keep those policies
+enforced for that namespace.
 
 **To change after bootstrap:** edit `ksail.prod.yaml` and run
 `ksail --config ksail.prod.yaml cluster update`.
