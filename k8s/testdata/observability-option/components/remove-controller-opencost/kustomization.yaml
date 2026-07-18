@@ -1,0 +1,68 @@
+---
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# Stage complete OpenCost retirement only for the explicit Coroot fixtures.
+# Real provider payloads keep the legacy surface until a later activation.
+patches:
+  - target:
+      version: v1
+      kind: Namespace
+      name: opencost
+    patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: opencost
+  - target:
+      group: source.toolkit.fluxcd.io
+      version: v1
+      kind: HelmRepository
+      name: opencost
+      namespace: opencost
+    patch: |
+      $patch: delete
+      apiVersion: source.toolkit.fluxcd.io/v1
+      kind: HelmRepository
+      metadata:
+        name: opencost
+        namespace: opencost
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: opencost
+      namespace: opencost
+    patch: |
+      $patch: delete
+      apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: opencost
+        namespace: opencost
+  - target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: HTTPRoute
+      name: opencost
+      namespace: opencost
+    patch: |
+      $patch: delete
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: opencost
+        namespace: opencost
+  - target:
+      group: cilium.io
+      version: v2
+      kind: CiliumNetworkPolicy
+      name: allow-opencost
+      namespace: opencost
+    patch: |
+      $patch: delete
+      apiVersion: cilium.io/v2
+      kind: CiliumNetworkPolicy
+      metadata:
+        name: allow-opencost
+        namespace: opencost
