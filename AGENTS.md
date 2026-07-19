@@ -105,13 +105,16 @@ applies Flux variable substitution, and does **not** start a cluster):
 
 ```bash
 ./scripts/validate-shared-cluster-policies.sh
+./scripts/validate-recommended-labels-option.sh
 ksail --config ksail.yaml workload validate
 ksail --config ksail.prod.yaml workload validate
 ```
 
-The shared-policy gate renders both provider payloads and verifies that the
-remote Helm remediation policy remains pinned to its reviewed revision and
-retains its expected mutation contract.
+The policy gates render both provider payloads. The shared-policy gate verifies
+that the default remote Helm remediation policy remains pinned to its reviewed
+revision and retains its expected mutation contract. The recommended-label gate
+proves the separate opt-in profiles preserve default absence and the reviewed
+label-mutation contract.
 
 Fallback without KSail (both overlays MUST build — `kubectl` has Kustomize built in;
 standalone `kustomize` may not be installed):
@@ -130,6 +133,12 @@ with:
 ```bash
 ./scripts/validate-observability-option.sh
 ```
+
+Recommended workload labels are also default-off. The selectable
+`clusters/local-recommended-labels` and `clusters/prod-recommended-labels` paths
+import the immutable shared policy through provider profiles. Validate the
+default absence, opt-in renders, and exact policy contract with the
+`validate-recommended-labels-option.sh` command above.
 
 `flux check` and other cluster-dependent checks require a running cluster — they are
 **not** part of static validation and must not be run during maintenance. A full
@@ -202,7 +211,9 @@ minimal and generic.
 **Validate before any manifest PR** — prefer `ksail --config ksail.yaml workload
 validate` and `ksail --config ksail.prod.yaml workload validate` (schema-aware, Flux
 substitution, no cluster), and run `./scripts/validate-shared-cluster-policies.sh`
-when shared policy resources change. Without KSail, both overlays MUST build with `kubectl
+when default shared policy resources change. Changes to the default-off
+recommended-label profiles also run
+`./scripts/validate-recommended-labels-option.sh`. Without KSail, both overlays MUST build with `kubectl
 kustomize k8s/clusters/local/` and `kubectl kustomize k8s/clusters/prod/`. Per file:
 `kubectl apply --dry-run=client -f <file>`. Changes to the selectable Coroot or
 audit-log-forwarder profiles also run

@@ -35,7 +35,7 @@ Only these fields genuinely vary per instance:
 | `spec.provider.hetzner.networkCidr` | n/a | private network CIDR | — (edit if it clashes) |
 | `spec.cluster.autoscaler.node.pools` | n/a | node pool definitions (name, serverType, location, min, max) | — (edit to tune autoscaling) |
 | `spec.cluster.autoscaler.node.maxNodesTotal` | n/a | hard ceiling on total cluster nodes | — (edit to cap cost) |
-| `spec.workload.kustomizationFile` | `clusters/local` | `clusters/prod` | — (choose the default or Coroot profile) |
+| `spec.workload.kustomizationFile` | `clusters/local` | `clusters/prod` | — (choose a default or opt-in profile) |
 
 Everything else (distribution, provider, CNI, GitOps engine, timeouts,
 `certManager`/`metricsServer`/`policyEngine`, Talos/Kubernetes version pins,
@@ -89,6 +89,29 @@ existing Dex-backed oauth2-proxy before the in-cluster auth proxy forwards it to
 Coroot. The profile grants Coroot's anonymous Admin role only behind that complete
 SSO path; there is no direct Gateway route to the Coroot service. Returning to the
 default cluster path removes the route and the profile-only Admin role together.
+
+### Add recommended workload labels at admission
+
+The default paths do not load this shared policy, so existing instances remain
+unchanged until they select it. To fill missing identity labels at admission,
+change only `spec.workload.kustomizationFile` in the KSail config for the cluster:
+
+| Cluster | Default | Recommended-label profile |
+|---|---|---|
+| local / Docker | `clusters/local` | `clusters/local-recommended-labels` |
+| prod / Hetzner | `clusters/prod` | `clusters/prod-recommended-labels` |
+
+The profile adds the SHA-pinned shared `add-recommended-labels` Kyverno policy.
+It fills missing `app` and `app.kubernetes.io/name` labels on Deployments,
+StatefulSets, and DaemonSets without overwriting labels the workload author set.
+System namespaces, generated names, and names that cannot be valid Kubernetes
+label values are left unchanged.
+
+The KSail configs belong to the instance and are excluded from template sync, so
+the selection persists across shared updates. To disable the policy, restore
+`clusters/local` or `clusters/prod`. The recommended-label profiles use the
+default observability paths; they do not also select the transitional Coroot
+profile.
 
 ### 2. Talos machine-config directories
 

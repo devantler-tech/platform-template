@@ -7,6 +7,7 @@ policy_name="add-recommended-labels"
 policy_revision="752a288171a6a26331e0a33ac18132ead0718cd3"
 policy_url="https://raw.githubusercontent.com/devantler-tech/kyverno-policies/${policy_revision}/policies/best-practices/${policy_name}.yaml"
 component="${repo_root}/k8s/components/cluster-policies/recommended-labels/kustomization.yaml"
+templating_doc="${repo_root}/docs/TEMPLATING.md"
 
 die() {
   echo "$1" >&2
@@ -67,23 +68,23 @@ assert_policy_contract() {
           ]}}]},
           preconditions: {all: [
             {
-              key: "{{ request.object.metadata.name || '' }}",
+              key: "{{ request.object.metadata.name || \u0027\u0027 }}",
               operator: "NotEquals",
               value: ""
             },
             {
-              key: "{{ length(request.object.metadata.name || '') }}",
+              key: "{{ length(request.object.metadata.name || \u0027\u0027) }}",
               operator: "LessThanOrEquals",
               value: 63
             }
           ]},
           mutate: {patchStrategicMerge: {
             metadata: {labels: {
-              "+(app)": "{{ request.object.metadata.name || '' }}",
-              "+(app.kubernetes.io/name)": "{{ request.object.metadata.name || '' }}"
+              "+(app)": "{{ request.object.metadata.name || \u0027\u0027 }}",
+              "+(app.kubernetes.io/name)": "{{ request.object.metadata.name || \u0027\u0027 }}"
             }},
             spec: {template: {metadata: {labels: {
-              "+(app.kubernetes.io/name)": "{{ request.object.metadata.name || '' }}"
+              "+(app.kubernetes.io/name)": "{{ request.object.metadata.name || \u0027\u0027 }}"
             }}}}
           }}
         }])
@@ -92,19 +93,42 @@ assert_policy_contract() {
 
 assert_profile_contract() {
   local profile_file="$1"
-  local base_path="$2"
-  local opt_in_path="$3"
+  local cluster="$2"
+  local base_path="$3"
+  local opt_in_path="$4"
+  local match_count
   local patch_body
 
-  patch_body="$(
-    yq -r '
+  yq -o=json '.' "${profile_file}" |
+    jq -e --arg resource "../${cluster}/" '
+      .apiVersion == "kustomize.config.k8s.io/v1beta1"
+      and .kind == "Kustomization"
+      and ((keys | sort) == ["apiVersion", "kind", "patches", "resources"])
+      and .resources == [$resource]
+    ' >/dev/null
+
+  match_count="$(
+    yq '
       [.patches[] | select(
         .target.group == "kustomize.toolkit.fluxcd.io"
         and .target.version == "v1"
         and .target.kind == "Kustomization"
         and .target.name == "infrastructure"
         and .target.namespace == "flux-system"
-      )] | if length == 1 then .[0].patch else "" end
+      )] | length
+    ' "${profile_file}"
+  )"
+  [[ "${match_count}" == "1" ]] || return 1
+
+  patch_body="$(
+    yq -r '
+      .patches[] | select(
+        .target.group == "kustomize.toolkit.fluxcd.io"
+        and .target.version == "v1"
+        and .target.kind == "Kustomization"
+        and .target.name == "infrastructure"
+        and .target.namespace == "flux-system"
+      ) | .patch
     ' "${profile_file}"
   )"
 
@@ -118,8 +142,30 @@ assert_profile_contract() {
     ' >/dev/null
 }
 
+assert_provider_profile_contract() {
+  local profile_file="$1"
+
+  yq -o=json '.' "${profile_file}" |
+    jq -e '
+      .apiVersion == "kustomize.config.k8s.io/v1beta1"
+      and .kind == "Kustomization"
+      and ((keys | sort) == ["apiVersion", "components", "kind", "resources"])
+      and .resources == ["../infrastructure/"]
+      and .components == ["../../../components/cluster-policies/recommended-labels/"]
+    ' >/dev/null
+}
+
 [[ -f "${component}" ]] || die "missing recommended-labels component"
 assert_component_source "${component}" || die "recommended-labels component is not one exact immutable policy import"
+component_source_count="$(grep -R -F -h -- "${policy_url}" "${repo_root}/k8s/components" | wc -l | tr -d ' ')"
+[[ "${component_source_count}" == "1" ]] || die "expected one component import for ${policy_name}, found ${component_source_count}"
+
+for profile in \
+  "${repo_root}/k8s/providers/docker/infrastructure-recommended-labels/kustomization.yaml" \
+  "${repo_root}/k8s/providers/hetzner/infrastructure-recommended-labels/kustomization.yaml"; do
+  [[ -f "${profile}" ]] || die "missing provider opt-in profile: ${profile}"
+  assert_provider_profile_contract "${profile}" || die "provider opt-in profile has unexpected resources or components: ${profile}"
+done
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
@@ -143,6 +189,7 @@ for cluster in local prod; do
   profile="${repo_root}/k8s/clusters/${cluster}-recommended-labels/kustomization.yaml"
   assert_profile_contract \
     "${profile}" \
+    "${cluster}" \
     "providers/${provider}/infrastructure" \
     "providers/${provider}/infrastructure-recommended-labels" ||
     die "${cluster} profile does not fail closed while selecting the recommended-labels provider path"
@@ -152,7 +199,7 @@ for cluster in local prod; do
   selected_path="$(
     yq eval-all -o=json '.' "${rendered_profile}" |
       jq -rs --arg name infrastructure '
-        [.[][] | select(
+        [.[] | select(
           type == "object"
           and .apiVersion == "kustomize.toolkit.fluxcd.io/v1"
           and .kind == "Kustomization"
@@ -163,6 +210,15 @@ for cluster in local prod; do
   )"
   [[ "${selected_path}" == "providers/${provider}/infrastructure-recommended-labels" ]] ||
     die "${cluster} profile selected unexpected infrastructure path: ${selected_path}"
+done
+
+for required_doc_token in \
+  'clusters/local-recommended-labels' \
+  'clusters/prod-recommended-labels' \
+  'add-recommended-labels' \
+  "restore \`clusters/local\` or \`clusters/prod\`"; do
+  grep -F -q -- "${required_doc_token}" "${templating_doc}" ||
+    die "templating guide is missing recommended-label opt-in guidance: ${required_doc_token}"
 done
 
 mutable_component="${tmp_dir}/mutable-component.yaml"
@@ -189,7 +245,7 @@ for mutation in background broad-kind overwrite-label missing-exclusion missing-
       expression='(select(.kind == "ClusterPolicy" and .metadata.name == "add-recommended-labels").spec.rules[0].match.any[0].resources.kinds[0]) = "Deployment"'
       ;;
     overwrite-label)
-      expression='(select(.kind == "ClusterPolicy" and .metadata.name == "add-recommended-labels").spec.rules[0].mutate.patchStrategicMerge.metadata.labels) = {"app": "{{ request.object.metadata.name || '' }}"}'
+      expression='(select(.kind == "ClusterPolicy" and .metadata.name == "add-recommended-labels").spec.rules[0].mutate.patchStrategicMerge.metadata.labels) = {"app": "{{ request.object.metadata.name || \u0027\u0027 }}"}'
       ;;
     missing-exclusion)
       expression='del(select(.kind == "ClusterPolicy" and .metadata.name == "add-recommended-labels").spec.rules[0].exclude)'
