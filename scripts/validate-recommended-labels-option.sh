@@ -212,12 +212,18 @@ for cluster in local prod; do
     die "${cluster} profile selected unexpected infrastructure path: ${selected_path}"
 done
 
+profile_docs="$(
+  sed -n '/^### Add recommended workload labels/,/^### 2\./p' "${templating_doc}"
+)"
 for required_doc_token in \
   'clusters/local-recommended-labels' \
   'clusters/prod-recommended-labels' \
   'add-recommended-labels' \
-  "restore \`clusters/local\` or \`clusters/prod\`"; do
-  grep -F -q -- "${required_doc_token}" "${templating_doc}" ||
+  'workload push' \
+  'cluster update' \
+  'workload reconcile' \
+  'To disable the policy, restore'; do
+  grep -F -q -- "${required_doc_token}" <<<"${profile_docs}" ||
     die "templating guide is missing recommended-label opt-in guidance: ${required_doc_token}"
 done
 

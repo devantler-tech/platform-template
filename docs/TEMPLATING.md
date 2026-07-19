@@ -109,9 +109,12 @@ label values are left unchanged.
 
 The KSail configs belong to the instance and are excluded from template sync, so
 the selection persists across shared updates. To disable the policy, restore
-`clusters/local` or `clusters/prod`. The recommended-label profiles use the
-default observability paths; they do not also select the transitional Coroot
-profile.
+`clusters/local` or `clusters/prod`. After selecting or reverting the
+recommended-label profile, run the same three-step sequence shown above:
+`workload push` → `cluster update` → `workload reconcile`. It publishes the
+payload, updates the FluxInstance sync path, and reconciles it. The
+recommended-label profiles use the default observability paths; they do not also
+select the transitional Coroot profile.
 
 ### 2. Talos machine-config directories
 
