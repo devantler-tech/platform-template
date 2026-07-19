@@ -59,6 +59,11 @@ jobs:
         # renders the explicit local/prod profiles selected through KSail.
         run: ./scripts/validate-observability-option.sh
 
+      - name: 🏷️ Validate default-off recommended workload labels
+        # Existing instances keep their default paths. Exercise the explicit
+        # profiles and the exact immutable shared-policy contract.
+        run: ./scripts/validate-recommended-labels-option.sh
+
       - name: 🛡️ Validate shared cluster policies
         # Hold the shared Helm remediation policy to its reviewed immutable
         # source and rendered behavior instead of trusting a URL-only build.
