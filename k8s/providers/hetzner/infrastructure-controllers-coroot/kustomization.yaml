@@ -5,6 +5,6 @@ resources:
   - ../infrastructure/controllers/
   - ../../../bases/infrastructure/controllers/coroot/
 components:
-  - ../../../components/observability-coroot/remove-controller-alloy-audit/
+  - ../../../components/observability-coroot/remove-controllers-loki-alloy/
   - ../../../components/observability-coroot/remove-controller-opencost/
   - ../../../components/observability-coroot/remove-opencost-references/

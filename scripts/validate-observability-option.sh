@@ -616,6 +616,8 @@ done
 for documented_boundary in \
   "This profile is transitional." \
   "removes OpenCost and its Headlamp" \
+  "retires the legacy Loki and Alloy log path" \
+  "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
   "https://observability.<your-domain>" \
   "Dex-backed oauth2-proxy" \

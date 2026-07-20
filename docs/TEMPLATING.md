@@ -74,8 +74,8 @@ ksail --config ksail.prod.yaml workload reconcile
 ```
 
 This profile is transitional. It enables Coroot, removes OpenCost and its Headlamp
-plugin, and keeps the legacy Prometheus, Loki, and Alloy stack while later template
-updates finish the migration. Cost allocation is therefore unavailable in this
+plugin, retires the legacy Loki and Alloy log path, and keeps kube-prometheus-stack
+until the metrics and alerting migration is proven separately. Cost allocation is therefore unavailable in this
 profile; it does not connect OpenCost to Coroot Prometheus. Docker runs Coroot
 without the audit log forwarder, while Hetzner includes the forwarder for host
 audit logs. Because Coroot's eBPF agent and the production audit collector need
