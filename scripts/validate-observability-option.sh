@@ -476,8 +476,7 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease monitoring alloy-audit 0
   assert_resource_count "${rendered_path}" HelmRelease monitoring alloy 0
   assert_resource_count "${rendered_path}" HelmRelease monitoring loki 0
-  # Tetragon still consumes the Grafana chart repository after Loki is gone.
-  assert_resource_count "${rendered_path}" HelmRepository monitoring grafana 1
+  assert_resource_count "${rendered_path}" HelmRepository monitoring grafana 0
   if [[ "$(loki_datasource_count "${rendered_path}")" != "0" ]]; then
     echo "Coroot profile must remove the dead Grafana Loki datasource" >&2
     exit 1
