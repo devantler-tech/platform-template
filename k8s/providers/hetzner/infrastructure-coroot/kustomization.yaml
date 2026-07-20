@@ -8,3 +8,11 @@ resources:
 components:
   - ../../../components/observability-coroot/allow-host-access/
   - ../../../components/observability-coroot/remove-opencost-references/
+patches:
+  - path: patches/add-webhook-alerting.yaml
+    target:
+      group: coroot.com
+      version: v1
+      kind: Coroot
+      name: coroot
+      namespace: observability

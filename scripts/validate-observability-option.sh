@@ -657,6 +657,11 @@ for documented_boundary in \
   "retires the legacy Loki and Alloy log path" \
   "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
+  "reuses the existing encrypted webhook" \
+  "incident and resolution notifications" \
+  "Per-alert notifications remain visible only in the Coroot UI" \
+  "Local / Docker Coroot stays notification-free" \
+  "Kube-prometheus-stack keeps owning its alert rules" \
   "https://observability.<your-domain>" \
   "Dex-backed oauth2-proxy" \
   "no direct Gateway route to the Coroot service" \

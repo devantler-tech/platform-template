@@ -1,0 +1,21 @@
+- op: test
+  path: /spec/projects/0/name
+  value: ${cluster_name}
+- op: test
+  path: /spec/projects/0/apiKeys/0/keySecret/name
+  value: coroot-api-key
+- op: test
+  path: /spec/projects/0/apiKeys/0/keySecret/key
+  value: key
+- op: add
+  path: /spec/projects/0/notificationIntegrations
+  value:
+    baseURL: https://observability.${domain}
+    webhook:
+      url: ${alertmanager_webhook_url:=https://example.invalid/no-slack-configured}
+      incidents: true
+      alerts: false
+      incidentTemplate: |
+        {"text": {{ if eq .Status "OK" }}{{ json (printf ":white_check_mark: <%s|%s/%s> incident resolved" .URL .Application.Namespace .Application.Name) }}{{ else }}{{ json (printf ":fire: %s: <%s|%s/%s> is not meeting its SLOs\n%s" .Status .URL .Application.Namespace .Application.Name .RCASummary) }}{{ end }}}
+      alertTemplate: |
+        {"text": {{ if eq .Status "OK" }}{{ json (printf ":white_check_mark: %s resolved - <%s|%s/%s>" .RuleName .URL .Application.Namespace .Application.Name) }}{{ else }}{{ json (printf ":rotating_light: [%s] %s - <%s|%s/%s>\n%s" .Severity .RuleName .URL .Application.Namespace .Application.Name .Summary) }}{{ end }}}
