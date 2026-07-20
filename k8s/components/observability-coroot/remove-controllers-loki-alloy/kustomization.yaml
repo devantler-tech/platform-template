@@ -1,0 +1,68 @@
+---
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# Coroot handles workload logs, and the Hetzner profile forwards Talos audit
+# files through audit-log-forwarder. Retire the inherited Loki-only collectors
+# and backend only in the explicit Coroot profiles; defaults stay unchanged.
+patches:
+  - target:
+      group: source.toolkit.fluxcd.io
+      version: v1
+      kind: HelmRepository
+      name: grafana
+      namespace: monitoring
+    patch: |
+      $patch: delete
+      apiVersion: source.toolkit.fluxcd.io/v1
+      kind: HelmRepository
+      metadata:
+        name: grafana
+        namespace: monitoring
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: alloy
+      namespace: monitoring
+    patch: |
+      $patch: delete
+      apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: alloy
+        namespace: monitoring
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: alloy-audit
+      namespace: monitoring
+    patch: |
+      $patch: delete
+      apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: alloy-audit
+        namespace: monitoring
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: loki
+      namespace: monitoring
+    patch: |
+      $patch: delete
+      apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: loki
+        namespace: monitoring
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: kube-prometheus-stack
+      namespace: monitoring
+    patch: |-
+      - op: remove
+        path: /spec/values/grafana/additionalDataSources

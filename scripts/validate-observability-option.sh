@@ -44,6 +44,23 @@ opencost_reference_count() {
     jq -s '[.[] | select(type == "object" and (tojson | test("opencost"; "i")))] | length'
 }
 
+loki_datasource_count() {
+  local rendered_path="$1"
+
+  yq eval-all -o=json '.' "${rendered_path}" |
+    jq -s '[.[] |
+      select(type == "object" and .kind == "HelmRelease" and .metadata.namespace == "monitoring" and .metadata.name == "kube-prometheus-stack") |
+      .spec.values.grafana.additionalDataSources[]? |
+      select(.type == "loki" or ((.url // "") | test("loki\\.monitoring\\.svc")))] | length'
+}
+
+loki_service_reference_count() {
+  local rendered_path="$1"
+
+  yq eval-all -o=json '.' "${rendered_path}" |
+    jq -s '[.[] | select(type == "object" and (tojson | test("loki\\.monitoring\\.svc")))] | length'
+}
+
 assert_resource_count() {
   local rendered_path="$1"
   local kind="$2"
@@ -442,23 +459,32 @@ render k8s/providers/hetzner/infrastructure-coroot/ "${hetzner_infrastructure}"
 render k8s/providers/hetzner/apps-coroot/ "${hetzner_apps}"
 render k8s/bases/infrastructure/coroot/ "${coroot_base}"
 
-# The Coroot option replaces the legacy audit-only Alloy collector only on the
-# production profile, where audit-log-forwarder reads the same Talos audit
-# files. Defaults and Docker keep their existing payloads, and the main Alloy
-# pod-log shipper remains present in every controller profile.
-for rendered_path in \
-  "${local_controllers_default}" \
-  "${prod_controllers_default}" \
-  "${docker_controllers}"; do
+# The default profiles retain the complete legacy Loki + Alloy logging path.
+# Coroot profiles retire that coupled stack: Coroot handles workload logs, and
+# the production profile's audit-log-forwarder handles Talos audit logs.
+for rendered_path in "${local_controllers_default}" "${prod_controllers_default}"; do
   assert_resource_count "${rendered_path}" HelmRelease monitoring alloy-audit 1
-done
-assert_resource_count "${hetzner_controllers}" HelmRelease monitoring alloy-audit 0
-for rendered_path in \
-  "${local_controllers_default}" \
-  "${prod_controllers_default}" \
-  "${docker_controllers}" \
-  "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease monitoring alloy 1
+  assert_resource_count "${rendered_path}" HelmRelease monitoring loki 1
+  assert_resource_count "${rendered_path}" HelmRepository monitoring grafana 1
+  if [[ "$(loki_datasource_count "${rendered_path}")" != "1" ]]; then
+    echo "default profile must retain the Grafana Loki datasource" >&2
+    exit 1
+  fi
+done
+for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
+  assert_resource_count "${rendered_path}" HelmRelease monitoring alloy-audit 0
+  assert_resource_count "${rendered_path}" HelmRelease monitoring alloy 0
+  assert_resource_count "${rendered_path}" HelmRelease monitoring loki 0
+  assert_resource_count "${rendered_path}" HelmRepository monitoring grafana 0
+  if [[ "$(loki_datasource_count "${rendered_path}")" != "0" ]]; then
+    echo "Coroot profile must remove the dead Grafana Loki datasource" >&2
+    exit 1
+  fi
+  if [[ "$(loki_service_reference_count "${rendered_path}")" != "0" ]]; then
+    echo "Coroot profile must not retain a reference to the retired Loki service" >&2
+    exit 1
+  fi
 done
 
 assert_auth_proxy_with_coroot "${local_controllers_default}" "${docker_controllers}"
@@ -589,6 +615,8 @@ done
 for documented_boundary in \
   "This profile is transitional." \
   "removes OpenCost and its Headlamp" \
+  "retires the legacy Loki and Alloy log path" \
+  "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
   "https://observability.<your-domain>" \
   "Dex-backed oauth2-proxy" \
