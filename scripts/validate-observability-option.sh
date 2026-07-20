@@ -524,6 +524,45 @@ assert_coroot_admin_role "${coroot_base}" 0
 assert_coroot_admin_role "${docker_infrastructure}" 1
 assert_coroot_admin_role "${hetzner_infrastructure}" 1
 
+docker_notification_integrations="$(
+  yq eval-all -o=json '.' "${docker_infrastructure}" |
+    jq -s '[.[] | select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") | .spec.projects[]?.notificationIntegrations? | select(. != null)] | length'
+)"
+base_notification_integrations="$(
+  yq eval-all -o=json '.' "${coroot_base}" |
+    jq -s '[.[] | select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") | .spec.projects[]?.notificationIntegrations? | select(. != null)] | length'
+)"
+hetzner_notification_integrations="$(
+  yq eval-all -o=json '.' "${hetzner_infrastructure}" |
+    jq -s '[.[] | select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") | .spec.projects[]? | select(.name == "${cluster_name}") | .notificationIntegrations? | select(. != null)] | length'
+)"
+hetzner_webhook_contract="$(
+  yq eval-all -o=json '.' "${hetzner_infrastructure}" |
+    jq -s '[.[] |
+      select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") |
+      .spec.projects[]? |
+      select(.name == "${cluster_name}") |
+      .notificationIntegrations? |
+      select(.baseURL == "https://observability.${domain}") |
+      .webhook? |
+      select(.url == "${alertmanager_webhook_url:=https://example.invalid/no-slack-configured}") |
+      select(.incidents == true and .alerts == false) |
+      select((.incidentTemplate | split("{{ json (printf") | length) == 3) |
+      select(.incidentTemplate | contains("incident resolved")) |
+      select(.incidentTemplate | contains(".RCASummary")) |
+      select((.alertTemplate | split("{{ json (printf") | length) == 3) |
+      select(.alertTemplate | contains(".RuleName"))] | length'
+)"
+
+if [[ "${docker_notification_integrations}" != "0" || "${base_notification_integrations}" != "0" ]]; then
+  echo "Coroot webhook notifications must remain absent from the reusable and local profiles" >&2
+  exit 1
+fi
+if [[ "${hetzner_notification_integrations}" != "1" || "${hetzner_webhook_contract}" != "1" ]]; then
+  echo "production Coroot must reuse the cluster webhook for JSON-safe incident notifications while keeping alerts UI-only" >&2
+  exit 1
+fi
+
 coroot_key_contract="$(
   yq eval-all -o=json '.' "${hetzner_infrastructure}" |
     jq -s '[.[] | select(.kind == "Coroot" and .metadata.namespace == "observability" and .metadata.name == "coroot") | .spec.projects[]?.apiKeys[]?.keySecret | select(.name == "coroot-api-key" and .key == "key")] | length'
@@ -554,7 +593,11 @@ audit_exporter_contract="$(
 )"
 network_policy_contract="$(
   yq eval-all -o=json '.' "${hetzner_controllers}" |
-    jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") | select(any(.spec.ingress[]?.fromEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "observability")) | select(any(.spec.egress[]?.toEntities[]?; . == "kube-apiserver")) | select(any(.spec.egress[]?.toFQDNs[]?; .matchName == "ghcr.io"))] | length'
+    jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") | select(any(.spec.ingress[]?.fromEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "observability")) | select(any(.spec.egress[]?.toEntities[]?; . == "kube-apiserver")) | select(any(.spec.egress[]?.toFQDNs[]?; .matchName == "ghcr.io")) | select(any(.spec.egress[]?.toFQDNs[]?; .matchName == "hooks.slack.com"))] | length'
+)"
+docker_webhook_egress_contract="$(
+  yq eval-all -o=json '.' "${docker_controllers}" |
+    jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") | .spec.egress[]?.toFQDNs[]? | select(.matchName == "hooks.slack.com")] | length'
 )"
 renovate_coroot_manager="$(
   jq '[.customManagers[]? | select(.datasourceTemplate == "docker") | select(any(.fileMatch[]?; . == "^k8s/bases/infrastructure/coroot/coroot\\.ya?ml$")) | select(any(.matchStrings[]?; contains("ghcr\\.io/coroot")))] | length' \
@@ -581,8 +624,8 @@ if [[ "${audit_exporter_contract}" != "1" ]]; then
   echo "audit-log-forwarder must export logs to Coroot's in-cluster OTLP endpoint with its x-api-key" >&2
   exit 1
 fi
-if [[ "${network_policy_contract}" != "1" ]]; then
-  echo "Coroot controller layer must retain its intra-namespace, Kubernetes API, and GHCR access" >&2
+if [[ "${network_policy_contract}" != "1" || "${docker_webhook_egress_contract}" != "0" ]]; then
+  echo "production Coroot must allow its Slack webhook while local Coroot stays notification-free" >&2
   exit 1
 fi
 if [[ "${renovate_coroot_manager}" != "1" ]]; then
@@ -618,6 +661,12 @@ for documented_boundary in \
   "retires the legacy Loki and Alloy log path" \
   "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
+  "reuses the existing encrypted webhook" \
+  "incident and resolution notifications" \
+  "permits only \`hooks.slack.com:443\`" \
+  "Per-alert notifications remain visible only in the Coroot UI" \
+  "Local / Docker Coroot stays notification-free" \
+  "Kube-prometheus-stack keeps owning its alert rules" \
   "https://observability.<your-domain>" \
   "Dex-backed oauth2-proxy" \
   "no direct Gateway route to the Coroot service" \

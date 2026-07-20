@@ -83,6 +83,14 @@ host access, the profile also exempts the `observability` namespace from the
 Kyverno host and restricted-pod policies; the default paths keep those policies
 enforced for that namespace.
 
+The production / Hetzner Coroot profile reuses the existing encrypted webhook
+variable for Coroot incident and resolution notifications. Its matching provider
+policy permits only `hooks.slack.com:443`, so keep this value a Slack incoming-webhook URL.
+Per-alert notifications remain visible only in the Coroot UI; this avoids sending
+every noisy alert to the shared webhook. Local / Docker Coroot stays notification-free.
+Kube-prometheus-stack keeps owning its alert rules until that remaining metrics
+and alerting migration is delivered separately.
+
 Open the Coroot UI at `https://observability.<your-domain>`. Community Edition
 does not provide native OIDC, so this profile sends every UI request through the
 existing Dex-backed oauth2-proxy before the in-cluster auth proxy forwards it to
@@ -166,7 +174,7 @@ reconcile. **To change a secret value:** edit it with `sops` (which decrypts, le
 set, and re-encrypts), then commit:
 
 ```bash
-sops --set '["stringData"]["alertmanager_webhook_url"] "https://hooks.example.com/…"' \
+sops --set '["stringData"]["alertmanager_webhook_url"] "https://hooks.slack.com/services/XXX/YYY/ZZZ"' \
   k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml
 ```
 
