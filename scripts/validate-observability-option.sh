@@ -593,7 +593,11 @@ audit_exporter_contract="$(
 )"
 network_policy_contract="$(
   yq eval-all -o=json '.' "${hetzner_controllers}" |
-    jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") | select(any(.spec.ingress[]?.fromEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "observability")) | select(any(.spec.egress[]?.toEntities[]?; . == "kube-apiserver")) | select(any(.spec.egress[]?.toFQDNs[]?; .matchName == "ghcr.io"))] | length'
+    jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") | select(any(.spec.ingress[]?.fromEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "observability")) | select(any(.spec.egress[]?.toEntities[]?; . == "kube-apiserver")) | select(any(.spec.egress[]?.toFQDNs[]?; .matchName == "ghcr.io")) | select(any(.spec.egress[]?.toFQDNs[]?; .matchName == "hooks.slack.com"))] | length'
+)"
+docker_webhook_egress_contract="$(
+  yq eval-all -o=json '.' "${docker_controllers}" |
+    jq -s '[.[] | select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") | .spec.egress[]?.toFQDNs[]? | select(.matchName == "hooks.slack.com")] | length'
 )"
 renovate_coroot_manager="$(
   jq '[.customManagers[]? | select(.datasourceTemplate == "docker") | select(any(.fileMatch[]?; . == "^k8s/bases/infrastructure/coroot/coroot\\.ya?ml$")) | select(any(.matchStrings[]?; contains("ghcr\\.io/coroot")))] | length' \
@@ -620,8 +624,8 @@ if [[ "${audit_exporter_contract}" != "1" ]]; then
   echo "audit-log-forwarder must export logs to Coroot's in-cluster OTLP endpoint with its x-api-key" >&2
   exit 1
 fi
-if [[ "${network_policy_contract}" != "1" ]]; then
-  echo "Coroot controller layer must retain its intra-namespace, Kubernetes API, and GHCR access" >&2
+if [[ "${network_policy_contract}" != "1" || "${docker_webhook_egress_contract}" != "0" ]]; then
+  echo "production Coroot must allow its Slack webhook while local Coroot stays notification-free" >&2
   exit 1
 fi
 if [[ "${renovate_coroot_manager}" != "1" ]]; then
@@ -659,6 +663,7 @@ for documented_boundary in \
   "Cost allocation is therefore unavailable" \
   "reuses the existing encrypted webhook" \
   "incident and resolution notifications" \
+  "permits only \`hooks.slack.com:443\`" \
   "Per-alert notifications remain visible only in the Coroot UI" \
   "Local / Docker Coroot stays notification-free" \
   "Kube-prometheus-stack keeps owning its alert rules" \

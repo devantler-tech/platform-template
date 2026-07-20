@@ -1,0 +1,7 @@
+- op: test
+  path: /spec/egress/3/toFQDNs/0/matchName
+  value: ghcr.io
+- op: add
+  path: /spec/egress/3/toFQDNs/-
+  value:
+    matchName: hooks.slack.com

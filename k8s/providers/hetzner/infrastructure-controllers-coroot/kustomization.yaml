@@ -8,3 +8,11 @@ components:
   - ../../../components/observability-coroot/remove-controllers-loki-alloy/
   - ../../../components/observability-coroot/remove-controller-opencost/
   - ../../../components/observability-coroot/remove-opencost-references/
+patches:
+  - path: patches/allow-slack-webhook-egress.yaml
+    target:
+      group: cilium.io
+      version: v2
+      kind: CiliumNetworkPolicy
+      name: allow-coroot
+      namespace: observability
