@@ -205,14 +205,25 @@ assert_coroot_heartbeat_substitution() {
   local substituted_path
   local heartbeat_url="https://hc-ping.com/example-heartbeat"
   local heartbeat_host
+  local heartbeat_token='$'
+  local rendered_line
+  local rendered_prefix
+  local rendered_suffix
   local cronjob_matches
   local policy_matches
 
   substituted_path="${tmp_dir}/$(basename "${rendered_path}" .yaml)-heartbeat-substituted.yaml"
+  heartbeat_token+='{alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}'
   heartbeat_host="${heartbeat_url#https://}"
   heartbeat_host="${heartbeat_host%%/*}"
-  alertmanager_heartbeat_url="${heartbeat_url}" flux envsubst \
-    <"${rendered_path}" >"${substituted_path}"
+  while IFS= read -r rendered_line || [[ -n "${rendered_line}" ]]; do
+    if [[ "${rendered_line}" == *"${heartbeat_token}"* ]]; then
+      rendered_prefix="${rendered_line%%"${heartbeat_token}"*}"
+      rendered_suffix="${rendered_line#*"${heartbeat_token}"}"
+      rendered_line="${rendered_prefix}${heartbeat_url}${rendered_suffix}"
+    fi
+    printf '%s\n' "${rendered_line}"
+  done <"${rendered_path}" >"${substituted_path}"
 
   cronjob_matches="$(
     yq eval-all -o=json '.' "${substituted_path}" |
