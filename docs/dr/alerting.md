@@ -57,22 +57,16 @@ tight cadence (`repeat_interval: 50s`). If the cluster — or the Prometheus →
 Alertmanager pipeline — dies, the monitor stops receiving pings and notifies
 Slack out-of-band.
 
-The Coroot profile uses the dedicated `cluster-heartbeat` CronJob instead. It
-pings the same existing URL every five minutes, independently of Coroot, and
-its network policy allows only that URL's exact hostname for DNS and HTTPS.
-The policy host is derived automatically during bootstrap and stored beside the
-URL in the existing encrypted Secret. For an already-synced instance using a
-non-healthchecks provider, add the matching `alertmanager_heartbeat_host` before
-selecting the Coroot profile; otherwise the safe fallback is `hc-ping.com`.
-Custom providers must accept HTTPS on port 443; bootstrap rejects other ports
-because the narrow heartbeat policy deliberately permits no alternative port.
-The namespace deny and broad DNS policies exclude this purpose-labelled workload
-only in `observability`. The Coroot profile disables Watchdog so Alertmanager
-cannot refresh the same external check and hide a failed CronJob. The invalid
-URL fallback keeps local and unconfigured instances quiet.
+The Coroot profile uses the dedicated `cluster-heartbeat` CronJob alongside that
+path. It pings the same existing URL every five minutes, independently of Coroot,
+and its network policy allows only `hc-ping.com:443` plus that hostname's exact
+DNS query. The Coroot overlay alone narrows the namespace deny and DNS policies
+around this purpose-labelled workload; default profiles keep their global
+selectors. The invalid URL fallback keeps local and unconfigured instances quiet.
+Coroot keeps Watchdog during this staging slice so custom-provider heartbeats remain
+protected before a later, independently validated cutover.
 Flux reconciliation alerting still depends on kube-prometheus-stack, so that stack
-remains
-transitional until a later slice replaces those rules before removing it.
+remains transitional until a later slice replaces those rules before removing it.
 
 Recommended monitor: [healthchecks.io](https://healthchecks.io) (free,
 open-source, native Slack integration). Create a check with a ~5 min

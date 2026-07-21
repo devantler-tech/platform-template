@@ -34,7 +34,6 @@ spec:
                 - kube-system
                 - kube-public
                 - kube-node-lease
-                - observability
       generate:
         generateExisting: true
         apiVersion: cilium.io/v2
@@ -45,37 +44,6 @@ spec:
         data:
           spec:
             endpointSelector: {}
-            enableDefaultDeny:
-              ingress: true
-              egress: true
-            ingressDeny:
-              - {}
-            egressDeny:
-              - {}
-    # The observability namespace has one purpose-labelled CronJob with a
-    # narrower policy. Scope the exception to this namespace so the label can
-    # never become a repository-wide opt-out from default deny.
-    - name: generate-default-deny-observability
-      match:
-        any:
-          - resources:
-              kinds:
-                - Namespace
-              names:
-                - observability
-      generate:
-        generateExisting: true
-        apiVersion: cilium.io/v2
-        kind: CiliumNetworkPolicy
-        name: default-deny
-        synchronize: true
-        namespace: "{{request.object.metadata.name}}"
-        data:
-          spec:
-            endpointSelector:
-              matchExpressions:
-                - key: platform-heartbeat
-                  operator: DoesNotExist
             enableDefaultDeny:
               ingress: true
               egress: true
@@ -96,7 +64,6 @@ spec:
                 - kube-system
                 - kube-public
                 - kube-node-lease
-                - observability
       generate:
         generateExisting: true
         apiVersion: cilium.io/v2
@@ -107,41 +74,6 @@ spec:
         data:
           spec:
             endpointSelector: {}
-            egress:
-              - toEndpoints:
-                  - matchLabels:
-                      k8s:io.kubernetes.pod.namespace: kube-system
-                      k8s-app: kube-dns
-                toPorts:
-                  - ports:
-                      - port: "53"
-                        protocol: UDP
-                      - port: "53"
-                        protocol: TCP
-    # The heartbeat policy carries its own exact DNS rule. Excluding it only
-    # in observability prevents the broad namespace DNS allow from widening
-    # that workload without opening a label-based bypass elsewhere.
-    - name: generate-allow-dns-observability
-      match:
-        any:
-          - resources:
-              kinds:
-                - Namespace
-              names:
-                - observability
-      generate:
-        generateExisting: true
-        apiVersion: cilium.io/v2
-        kind: CiliumNetworkPolicy
-        name: allow-dns
-        synchronize: true
-        namespace: "{{request.object.metadata.name}}"
-        data:
-          spec:
-            endpointSelector:
-              matchExpressions:
-                - key: platform-heartbeat
-                  operator: DoesNotExist
             egress:
               - toEndpoints:
                   - matchLabels:

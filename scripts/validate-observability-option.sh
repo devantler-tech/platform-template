@@ -168,11 +168,11 @@ assert_coroot_heartbeat_contract() {
         select(.spec.ingressDeny == [{}]) |
         select(.spec.egress | length == 2) |
         select(any(.spec.egress[];
-          .toFQDNs == [{"matchName":"${alertmanager_heartbeat_host:=hc-ping.com}"}] and
+          .toFQDNs == [{"matchName":"hc-ping.com"}] and
           .toPorts == [{"ports":[{"port":"443","protocol":"TCP"}]}])) |
         select(any(.spec.egress[];
           .toEndpoints == [{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s-app":"kube-dns"}}] and
-          .toPorts == [{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}],"rules":{"dns":[{"matchName":"${alertmanager_heartbeat_host:=hc-ping.com}"}]}}]))] | length'
+          .toPorts == [{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}],"rules":{"dns":[{"matchName":"hc-ping.com"}]}}]))] | length'
   )"
   coroot_selector_contract="$(
     yq eval-all -o=json '.' "${rendered_path}" |
@@ -199,7 +199,43 @@ assert_coroot_heartbeat_contract() {
   fi
 }
 
-# Validates that only explicit Coroot profiles replace the Watchdog heartbeat.
+# Validates the effective heartbeat after Flux post-build substitution.
+assert_coroot_heartbeat_substitution() {
+  local rendered_path="$1"
+  local substituted_path
+  local heartbeat_url="https://hc-ping.com/example-heartbeat"
+  local heartbeat_host
+  local cronjob_matches
+  local policy_matches
+
+  substituted_path="${tmp_dir}/$(basename "${rendered_path}" .yaml)-heartbeat-substituted.yaml"
+  heartbeat_host="${heartbeat_url#https://}"
+  heartbeat_host="${heartbeat_host%%/*}"
+  alertmanager_heartbeat_url="${heartbeat_url}" flux envsubst \
+    <"${rendered_path}" >"${substituted_path}"
+
+  cronjob_matches="$(
+    yq eval-all -o=json '.' "${substituted_path}" |
+      jq -s --arg heartbeat_url "${heartbeat_url}" '[.[] |
+        select(.kind == "CronJob" and .metadata.namespace == "observability" and .metadata.name == "cluster-heartbeat") |
+        select(.spec.jobTemplate.spec.template.spec.containers[0].command[2] ==
+          ("curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"" + $heartbeat_url + "\" || true"))] | length'
+  )"
+  policy_matches="$(
+    yq eval-all -o=json '.' "${substituted_path}" |
+      jq -s --arg heartbeat_host "${heartbeat_host}" '[.[] |
+        select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-cluster-heartbeat") |
+        select(any(.spec.egress[]?.toFQDNs[]?; .matchName == $heartbeat_host)) |
+        select(any(.spec.egress[]?.toPorts[]?.rules.dns[]?; .matchName == $heartbeat_host))] | length'
+  )"
+
+  if [[ "${cronjob_matches}" != "1" || "${policy_matches}" != "1" ]]; then
+    echo "Flux-substituted heartbeat URL and exact policy host must agree in ${rendered_path}" >&2
+    return 1
+  fi
+}
+
+# Validates the expected Watchdog state in default and Coroot profiles.
 assert_watchdog_disabled() {
   local rendered_path="$1"
   local expected="$2"
@@ -260,6 +296,41 @@ assert_heartbeat_policy_exclusion() {
       return 1
     fi
   done
+}
+
+# Verifies that default profiles retain the global deny and DNS selectors.
+assert_heartbeat_policy_exclusion_absent() {
+  local rendered_path="$1"
+  local rule_name
+  local matches
+
+  for rule_name in generate-default-deny generate-allow-dns; do
+    matches="$(
+      yq eval-all -o=json '.' "${rendered_path}" |
+        jq -s --arg rule_name "${rule_name}" '[.[] |
+          select(.kind == "ClusterPolicy" and .metadata.name == "add-default-deny") |
+          .spec.rules[] |
+          select(.name == $rule_name) |
+          select(((.exclude.any[0].resources.names // []) | index("observability")) == null) |
+          select(.generate.data.spec.endpointSelector == {})] | length'
+    )"
+    if [[ "${matches}" != "1" ]]; then
+      echo "default add-default-deny/${rule_name} must keep its global selector in ${rendered_path}" >&2
+      return 1
+    fi
+  done
+
+  matches="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "ClusterPolicy" and .metadata.name == "add-default-deny") |
+        .spec.rules[] |
+        select(.name == "generate-default-deny-observability" or .name == "generate-allow-dns-observability")] | length'
+  )"
+  if [[ "${matches}" != "0" ]]; then
+    echo "default add-default-deny must not contain Coroot heartbeat exceptions in ${rendered_path}" >&2
+    return 1
+  fi
 }
 
 assert_opencost_present() {
@@ -600,7 +671,7 @@ for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_de
   assert_security_exception_namespace_count "${rendered_path}" infrastructure-privileged observability 0
   assert_security_exception_namespace_count "${rendered_path}" controller-rbac observability 0
   assert_security_exception_namespace_count "${rendered_path}" service-account-tokens observability 0
-  assert_heartbeat_policy_exclusion "${rendered_path}"
+  assert_heartbeat_policy_exclusion_absent "${rendered_path}"
 done
 assert_opencost_reference_count "${local_apps_default}" 1
 assert_opencost_reference_count "${prod_apps_default}" 1
@@ -654,7 +725,8 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_opencost_absent "${rendered_path}"
   assert_coroot_sso_controller_contract "${rendered_path}"
   assert_coroot_heartbeat_contract "${rendered_path}"
-  assert_watchdog_disabled "${rendered_path}" true
+  assert_coroot_heartbeat_substitution "${rendered_path}"
+  assert_watchdog_disabled "${rendered_path}" false
 done
 
 for rendered_path in "${docker_infrastructure}" "${hetzner_infrastructure}"; do
@@ -820,12 +892,10 @@ for documented_boundary in \
   "retires the legacy Loki and Alloy log path" \
   "stages one hardened \`cluster-heartbeat\` CronJob" \
   "reuses the existing encrypted heartbeat URL" \
-  "configured heartbeat hostname's exact DNS query" \
-  "\`alertmanager_heartbeat_host\`" \
+  "permits only \`hc-ping.com:443\`" \
   "runs at platform-critical priority" \
-  "disables only Watchdog" \
-  "host is derived automatically" \
-  "Custom providers must accept HTTPS on port 443" \
+  "runs alongside Watchdog" \
+  "custom-provider heartbeats" \
   "does not add a new secret" \
   "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
@@ -845,27 +915,21 @@ for documented_boundary in \
   fi
 done
 
-bootstrap_workflow="${repo_root}/.github/workflows/bootstrap.yaml"
-for heartbeat_host_boundary in \
-  "heartbeat_authority=\"\${ALERTMANAGER_HEARTBEAT_URL#*://}\"" \
-  "heartbeat_authority=\"\${heartbeat_authority%%/*}\"" \
-  "heartbeat_port=\"\${heartbeat_authority##*:}\"" \
-  "[[ \"\${heartbeat_port}\" != \"443\" ]]" \
-  "ALERTMANAGER_HEARTBEAT_HOST=\"\${heartbeat_authority%%:*}\"" \
-  '.stringData.alertmanager_heartbeat_host = strenv(ALERTMANAGER_HEARTBEAT_HOST)'; do
-  if ! grep -Fq "${heartbeat_host_boundary}" "${bootstrap_workflow}"; then
-    echo "bootstrap workflow does not derive the heartbeat policy host from the configured URL: ${heartbeat_host_boundary}" >&2
-    exit 1
-  fi
-done
+if grep -R -n 'alertmanager_heartbeat_host' \
+  "${repo_root}/.github/workflows/bootstrap.yaml" \
+  "${repo_root}/docs" \
+  "${repo_root}/k8s"; then
+  echo "Coroot heartbeat must not add an instance-owned host variable" >&2
+  exit 1
+fi
 
 alerting_guide="${repo_root}/docs/dr/alerting.md"
 for documented_heartbeat_boundary in \
   "The default profile keeps the \`Watchdog\` alert" \
   "The Coroot profile uses the dedicated \`cluster-heartbeat\` CronJob" \
-  "policy host is derived automatically" \
-  "alertmanager_heartbeat_host" \
-  "disables Watchdog" \
+  "only \`hc-ping.com:443\`" \
+  "keeps Watchdog" \
+  "custom-provider heartbeats" \
   "Flux reconciliation alerting still depends on kube-prometheus-stack"; do
   if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
     echo "alerting guide does not retain heartbeat boundary: ${documented_heartbeat_boundary}" >&2

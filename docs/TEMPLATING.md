@@ -90,22 +90,16 @@ Per-alert notifications remain visible only in the Coroot UI; this avoids sendin
 every noisy alert to the shared webhook. Local / Docker Coroot stays notification-free.
 The profile also stages one hardened `cluster-heartbeat` CronJob for the cluster
 dead-man signal. It reuses the existing encrypted heartbeat URL and does not add a new secret.
-It runs at platform-critical priority, and its dedicated policy permits only the
-configured heartbeat hostname's exact DNS query plus HTTPS. During bootstrap the
-policy host is derived automatically from the existing encrypted URL and stored in
-that same Secret, so there is no new secret or GitHub input. Existing synced
-instances using a non-healthchecks provider should add the URL's hostname as
-`alertmanager_heartbeat_host` before selecting the Coroot profile; the fallback remains
-`hc-ping.com`. Custom providers must accept HTTPS on port 443, which bootstrap
-validates because the narrow policy deliberately permits no other port. The
-namespace deny and broad DNS policies exclude the CronJob's
-purpose-specific label only inside `observability`, so their explicit deny cannot
-override the narrower workload policy or create a label-based bypass elsewhere.
-The invalid URL fallback keeps local and unconfigured instances inert. The profile
-disables only Watchdog to prevent Alertmanager from refreshing the same external
-check and masking a broken CronJob.
-Kube-prometheus-stack keeps owning its alert rules except Watchdog, including Flux
-reconciliation alerts, until that remaining migration is delivered separately.
+It runs at platform-critical priority, and its dedicated policy permits only `hc-ping.com:443`
+plus that hostname's exact DNS query. The Coroot infrastructure
+overlay alone narrows the generated namespace policies around the CronJob's
+purpose-specific label, so default profiles retain their global selectors. The
+invalid URL fallback keeps local and unconfigured instances inert. During this
+staging slice the CronJob runs alongside Watchdog: kube-prometheus-stack keeps the
+existing dead-man path so already-synced custom-provider heartbeats cannot be lost
+before a later, independently validated cutover. Kube-prometheus-stack keeps owning its alert rules,
+including Flux reconciliation alerts, until that
+remaining migration is delivered separately.
 
 Open the Coroot UI at `https://observability.<your-domain>`. Community Edition
 does not provide native OIDC, so this profile sends every UI request through the

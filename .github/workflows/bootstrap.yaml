@@ -190,43 +190,11 @@ jobs:
         run: |
           set -euo pipefail
           # Internal secrets that need no human input — generate random values.
-          DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
-          FLUX_WEB_CLIENT_SECRET="$(openssl rand -hex 32)"
-          OAUTH2_PROXY_COOKIE_SECRET="$(openssl rand -base64 32)"
-          export DEX_CLIENT_SECRET FLUX_WEB_CLIENT_SECRET OAUTH2_PROXY_COOKIE_SECRET
+          export DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
+          export FLUX_WEB_CLIENT_SECRET="$(openssl rand -hex 32)"
+          export OAUTH2_PROXY_COOKIE_SECRET="$(openssl rand -base64 32)"
 
-          # Derive the non-secret FQDN used by the Coroot heartbeat policy from
-          # the existing URL input. This keeps custom monitor providers working
-          # without adding another GitHub secret or operator-supplied value.
-          ALERTMANAGER_HEARTBEAT_HOST="hc-ping.com"
-          if [[ -n "${ALERTMANAGER_HEARTBEAT_URL:-}" ]]; then
-            if [[ "${ALERTMANAGER_HEARTBEAT_URL}" != https://* ]]; then
-              echo "ALERTMANAGER_HEARTBEAT_URL must use https://" >&2
-              exit 1
-            fi
-            heartbeat_authority="${ALERTMANAGER_HEARTBEAT_URL#*://}"
-            heartbeat_authority="${heartbeat_authority%%/*}"
-            if [[ "${heartbeat_authority}" == *:* ]]; then
-              heartbeat_port="${heartbeat_authority##*:}"
-              if [[ "${heartbeat_port}" != "443" ]]; then
-                echo "ALERTMANAGER_HEARTBEAT_URL must use HTTPS port 443" >&2
-                exit 1
-              fi
-            fi
-            ALERTMANAGER_HEARTBEAT_HOST="${heartbeat_authority%%:*}"
-            if [[ -z "${ALERTMANAGER_HEARTBEAT_HOST}" ||
-              "${ALERTMANAGER_HEARTBEAT_HOST}" == *[!A-Za-z0-9.-]* ||
-              "${ALERTMANAGER_HEARTBEAT_HOST}" == .* ||
-              "${ALERTMANAGER_HEARTBEAT_HOST}" == *. ||
-              "${ALERTMANAGER_HEARTBEAT_HOST}" == *..* ]]; then
-              echo "ALERTMANAGER_HEARTBEAT_URL must contain a valid DNS hostname" >&2
-              exit 1
-            fi
-          fi
-          export ALERTMANAGER_HEARTBEAT_HOST
-
-          # Populates the base Secret fields shared by every generated instance.
-          fill_base() {
+          fill_base() { # variables-base-secret
             yq -i '
               .stringData.cloudflare_api_token = strenv(CLOUDFLARE_API_TOKEN) |
               .stringData.r2_access_key_id = strenv(R2_ACCESS_KEY_ID) |
@@ -239,7 +207,6 @@ jobs:
           yq -i '
             .stringData.alertmanager_webhook_url = strenv(ALERTMANAGER_WEBHOOK_URL) |
             .stringData.alertmanager_heartbeat_url = strenv(ALERTMANAGER_HEARTBEAT_URL) |
-            .stringData.alertmanager_heartbeat_host = strenv(ALERTMANAGER_HEARTBEAT_HOST) |
             .stringData.dex_client_secret = strenv(DEX_CLIENT_SECRET) |
             .stringData.flux_web_client_secret = strenv(FLUX_WEB_CLIENT_SECRET) |
             .stringData.oauth2_proxy_cookie_secret = strenv(OAUTH2_PROXY_COOKIE_SECRET) |

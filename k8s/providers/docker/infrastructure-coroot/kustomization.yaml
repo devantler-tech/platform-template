@@ -6,4 +6,5 @@ resources:
   - ../../../bases/infrastructure/coroot/
 components:
   - ../../../components/observability-coroot/allow-host-access/
+  - ../../../components/observability-coroot/isolate-heartbeat/
   - ../../../components/observability-coroot/remove-opencost-references/

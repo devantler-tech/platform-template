@@ -1,0 +1,96 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# Only Coroot profiles stage the purpose-labelled heartbeat. Exclude that label
+# from the generated namespace policies here, then replace both boundaries with
+# narrower policies so default profiles keep their global zero-trust selectors.
+patches:
+  - target:
+      group: kyverno.io
+      version: v1
+      kind: ClusterPolicy
+      name: add-default-deny
+    patch: |
+      - op: test
+        path: /spec/rules/0/name
+        value: generate-default-deny
+      - op: test
+        path: /spec/rules/0/exclude/any/0/resources/names/2
+        value: kube-node-lease
+      - op: add
+        path: /spec/rules/0/exclude/any/0/resources/names/-
+        value: observability
+      - op: test
+        path: /spec/rules/1/name
+        value: generate-allow-dns
+      - op: test
+        path: /spec/rules/1/exclude/any/0/resources/names/2
+        value: kube-node-lease
+      - op: add
+        path: /spec/rules/1/exclude/any/0/resources/names/-
+        value: observability
+      - op: add
+        path: /spec/rules/-
+        value:
+          name: generate-default-deny-observability
+          match:
+            any:
+              - resources:
+                  kinds:
+                    - Namespace
+                  names:
+                    - observability
+          generate:
+            generateExisting: true
+            apiVersion: cilium.io/v2
+            kind: CiliumNetworkPolicy
+            name: default-deny
+            synchronize: true
+            namespace: "{{request.object.metadata.name}}"
+            data:
+              spec:
+                endpointSelector:
+                  matchExpressions:
+                    - key: platform-heartbeat
+                      operator: DoesNotExist
+                enableDefaultDeny:
+                  ingress: true
+                  egress: true
+                ingressDeny:
+                  - {}
+                egressDeny:
+                  - {}
+      - op: add
+        path: /spec/rules/-
+        value:
+          name: generate-allow-dns-observability
+          match:
+            any:
+              - resources:
+                  kinds:
+                    - Namespace
+                  names:
+                    - observability
+          generate:
+            generateExisting: true
+            apiVersion: cilium.io/v2
+            kind: CiliumNetworkPolicy
+            name: allow-dns
+            synchronize: true
+            namespace: "{{request.object.metadata.name}}"
+            data:
+              spec:
+                endpointSelector:
+                  matchExpressions:
+                    - key: platform-heartbeat
+                      operator: DoesNotExist
+                egress:
+                  - toEndpoints:
+                      - matchLabels:
+                          k8s:io.kubernetes.pod.namespace: kube-system
+                          k8s-app: kube-dns
+                    toPorts:
+                      - ports:
+                          - port: "53"
+                            protocol: UDP
+                          - port: "53"
+                            protocol: TCP

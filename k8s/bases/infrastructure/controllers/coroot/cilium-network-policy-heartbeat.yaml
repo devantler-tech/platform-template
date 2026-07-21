@@ -14,7 +14,7 @@ spec:
     - {}
   egress:
     - toFQDNs:
-        - matchName: ${alertmanager_heartbeat_host:=hc-ping.com}
+        - matchName: hc-ping.com
       toPorts:
         - ports:
             - port: "443"
@@ -32,4 +32,4 @@ spec:
               protocol: TCP
           rules:
             dns:
-              - matchName: ${alertmanager_heartbeat_host:=hc-ping.com}
+              - matchName: hc-ping.com

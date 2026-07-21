@@ -7,6 +7,7 @@ resources:
   - ../../../bases/infrastructure/audit-log-forwarder/
 components:
   - ../../../components/observability-coroot/allow-host-access/
+  - ../../../components/observability-coroot/isolate-heartbeat/
   - ../../../components/observability-coroot/remove-opencost-references/
 patches:
   - path: patches/add-webhook-alerting.yaml
