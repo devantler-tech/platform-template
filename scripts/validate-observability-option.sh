@@ -108,6 +108,7 @@ assert_default_off() {
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
   assert_resource_count "${rendered_path}" CronJob observability cluster-heartbeat 0
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 0
+  assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 0
   assert_resource_count "${rendered_path}" HTTPRoute observability coroot 0
 }
 
@@ -115,6 +116,7 @@ assert_coroot_heartbeat_contract() {
   local rendered_path="$1"
   local cronjob_contract
   local heartbeat_egress_contract
+  local coroot_selector_contract
   local broad_external_egress
 
   cronjob_contract="$(
@@ -153,10 +155,22 @@ assert_coroot_heartbeat_contract() {
   heartbeat_egress_contract="$(
     yq eval-all -o=json '.' "${rendered_path}" |
       jq -s '[.[] |
+        select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-cluster-heartbeat") |
+        select(.spec.endpointSelector.matchLabels == {"app":"cluster-heartbeat"}) |
+        select(.spec.egress | length == 2) |
+        select(any(.spec.egress[];
+          .toFQDNs == [{"matchName":"hc-ping.com"}] and
+          .toPorts == [{"ports":[{"port":"443","protocol":"TCP"}]}])) |
+        select(any(.spec.egress[];
+          .toEndpoints == [{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s-app":"kube-dns"}}] and
+          .toPorts == [{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}],"rules":{"dns":[{"matchPattern":"*"}]}}]))] | length'
+  )"
+  coroot_selector_contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
         select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") |
-        .spec.egress[]? |
-        select(.toFQDNs == [{"matchName":"hc-ping.com"}]) |
-        select(.toPorts == [{"ports":[{"port":"443","protocol":"TCP"}]}])] | length'
+        select(.spec.endpointSelector.matchExpressions == [{"key":"app","operator":"NotIn","values":["cluster-heartbeat"]}]) |
+        select(all(.spec.egress[]?.toFQDNs[]?; .matchName != "hc-ping.com"))] | length'
   )"
   broad_external_egress="$(
     yq eval-all -o=json '.' "${rendered_path}" |
@@ -170,8 +184,8 @@ assert_coroot_heartbeat_contract() {
     echo "Coroot profile must render one hardened five-minute cluster heartbeat in ${rendered_path}" >&2
     return 1
   fi
-  if [[ "${heartbeat_egress_contract}" != "1" || "${broad_external_egress}" != "0" ]]; then
-    echo "Coroot heartbeat must have one exact hc-ping.com:443 egress path without wildcard or world access in ${rendered_path}" >&2
+  if [[ "${heartbeat_egress_contract}" != "1" || "${coroot_selector_contract}" != "1" || "${broad_external_egress}" != "0" ]]; then
+    echo "Coroot heartbeat must be excluded from the shared policy and have one exact hc-ping.com:443 egress path without wildcard or world access in ${rendered_path}" >&2
     return 1
   fi
 }
@@ -560,8 +574,9 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 1
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
-  assert_resource_count "${rendered_path}" HelmRelease monitoring kube-prometheus-stack 1
-  assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 1
+    assert_resource_count "${rendered_path}" HelmRelease monitoring kube-prometheus-stack 1
+    assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 1
+    assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 1
   assert_opencost_absent "${rendered_path}"
   assert_coroot_sso_controller_contract "${rendered_path}"
   assert_coroot_heartbeat_contract "${rendered_path}"

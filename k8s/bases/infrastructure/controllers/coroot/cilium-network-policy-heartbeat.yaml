@@ -1,0 +1,30 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-cluster-heartbeat
+  namespace: observability
+spec:
+  endpointSelector:
+    matchLabels:
+      app: cluster-heartbeat
+  egress:
+    - toFQDNs:
+        - matchName: hc-ping.com
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # DNS is the only other egress path required to resolve the exact endpoint.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
