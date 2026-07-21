@@ -64,6 +64,8 @@ The policy host is derived automatically during bootstrap and stored beside the
 URL in the existing encrypted Secret. For an already-synced instance using a
 non-healthchecks provider, add the matching `alertmanager_heartbeat_host` before
 selecting the Coroot profile; otherwise the safe fallback is `hc-ping.com`.
+Custom providers must accept HTTPS on port 443; bootstrap rejects other ports
+because the narrow heartbeat policy deliberately permits no alternative port.
 The namespace deny and broad DNS policies exclude this purpose-labelled workload
 only in `observability`. The Coroot profile disables Watchdog so Alertmanager
 cannot refresh the same external check and hide a failed CronJob. The invalid

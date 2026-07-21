@@ -824,6 +824,7 @@ for documented_boundary in \
   "runs at platform-critical priority" \
   "disables only Watchdog" \
   "host is derived automatically" \
+  "Custom providers must accept HTTPS on port 443" \
   "does not add a new secret" \
   "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
@@ -845,9 +846,11 @@ done
 
 bootstrap_workflow="${repo_root}/.github/workflows/bootstrap.yaml"
 for heartbeat_host_boundary in \
-  "heartbeat_host=\"\${ALERTMANAGER_HEARTBEAT_URL#*://}\"" \
-  "heartbeat_host=\"\${heartbeat_host%%/*}\"" \
-  "ALERTMANAGER_HEARTBEAT_HOST=\"\${heartbeat_host%%:*}\"" \
+  "heartbeat_authority=\"\${ALERTMANAGER_HEARTBEAT_URL#*://}\"" \
+  "heartbeat_authority=\"\${heartbeat_authority%%/*}\"" \
+  "heartbeat_port=\"\${heartbeat_authority##*:}\"" \
+  "[[ \"\${heartbeat_port}\" != \"443\" ]]" \
+  "ALERTMANAGER_HEARTBEAT_HOST=\"\${heartbeat_authority%%:*}\"" \
   '.stringData.alertmanager_heartbeat_host = strenv(ALERTMANAGER_HEARTBEAT_HOST)'; do
   if ! grep -Fq "${heartbeat_host_boundary}" "${bootstrap_workflow}"; then
     echo "bootstrap workflow does not derive the heartbeat policy host from the configured URL: ${heartbeat_host_boundary}" >&2

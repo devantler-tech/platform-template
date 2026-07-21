@@ -96,7 +96,9 @@ policy host is derived automatically from the existing encrypted URL and stored 
 that same Secret, so there is no new secret or GitHub input. Existing synced
 instances using a non-healthchecks provider should add the URL's hostname as
 `alertmanager_heartbeat_host` before selecting the Coroot profile; the fallback remains
-`hc-ping.com`. The namespace deny and broad DNS policies exclude the CronJob's
+`hc-ping.com`. Custom providers must accept HTTPS on port 443, which bootstrap
+validates because the narrow policy deliberately permits no other port. The
+namespace deny and broad DNS policies exclude the CronJob's
 purpose-specific label only inside `observability`, so their explicit deny cannot
 override the narrower workload policy or create a label-based bypass elsewhere.
 The invalid URL fallback keeps local and unconfigured instances inert. The profile

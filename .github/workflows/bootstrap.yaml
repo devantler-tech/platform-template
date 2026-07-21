@@ -204,9 +204,16 @@ jobs:
               echo "ALERTMANAGER_HEARTBEAT_URL must use https://" >&2
               exit 1
             fi
-            heartbeat_host="${ALERTMANAGER_HEARTBEAT_URL#*://}"
-            heartbeat_host="${heartbeat_host%%/*}"
-            ALERTMANAGER_HEARTBEAT_HOST="${heartbeat_host%%:*}"
+            heartbeat_authority="${ALERTMANAGER_HEARTBEAT_URL#*://}"
+            heartbeat_authority="${heartbeat_authority%%/*}"
+            if [[ "${heartbeat_authority}" == *:* ]]; then
+              heartbeat_port="${heartbeat_authority##*:}"
+              if [[ "${heartbeat_port}" != "443" ]]; then
+                echo "ALERTMANAGER_HEARTBEAT_URL must use HTTPS port 443" >&2
+                exit 1
+              fi
+            fi
+            ALERTMANAGER_HEARTBEAT_HOST="${heartbeat_authority%%:*}"
             if [[ -z "${ALERTMANAGER_HEARTBEAT_HOST}" ||
               "${ALERTMANAGER_HEARTBEAT_HOST}" == *[!A-Za-z0-9.-]* ||
               "${ALERTMANAGER_HEARTBEAT_HOST}" == .* ||
