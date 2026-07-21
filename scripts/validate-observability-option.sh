@@ -167,11 +167,11 @@ assert_coroot_heartbeat_contract() {
         select(.spec.ingressDeny == [{}]) |
         select(.spec.egress | length == 2) |
         select(any(.spec.egress[];
-          .toFQDNs == [{"matchName":"hc-ping.com"}] and
+          .toFQDNs == [{"matchName":"${alertmanager_heartbeat_host:=hc-ping.com}"}] and
           .toPorts == [{"ports":[{"port":"443","protocol":"TCP"}]}])) |
         select(any(.spec.egress[];
           .toEndpoints == [{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s-app":"kube-dns"}}] and
-          .toPorts == [{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}],"rules":{"dns":[{"matchName":"hc-ping.com"}]}}]))] | length'
+          .toPorts == [{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}],"rules":{"dns":[{"matchName":"${alertmanager_heartbeat_host:=hc-ping.com}"}]}}]))] | length'
   )"
   coroot_selector_contract="$(
     yq eval-all -o=json '.' "${rendered_path}" |
@@ -193,7 +193,7 @@ assert_coroot_heartbeat_contract() {
     return 1
   fi
   if [[ "${heartbeat_egress_contract}" != "1" || "${coroot_selector_contract}" != "1" || "${broad_external_egress}" != "0" ]]; then
-    echo "Coroot heartbeat must be excluded from the shared policy and have one exact hc-ping.com:443 egress path without wildcard or world access in ${rendered_path}" >&2
+    echo "Coroot heartbeat must be excluded from broad policies and have one exact configured-host egress path without wildcard or world access in ${rendered_path}" >&2
     return 1
   fi
 }
@@ -217,11 +217,12 @@ assert_watchdog_disabled() {
   fi
 }
 
-# Validates that generated deny and DNS policies defer the dedicated heartbeat
-# label to its narrower workload policy without creating a generic bypass.
+# Validates that only the observability namespace's generated policies defer
+# the dedicated heartbeat label to its narrower workload policy.
 assert_heartbeat_policy_exclusion() {
   local rendered_path="$1"
   local rule_name
+  local scoped_rule_name
   local matches
 
   for rule_name in generate-default-deny generate-allow-dns; do
@@ -231,13 +232,30 @@ assert_heartbeat_policy_exclusion() {
           select(.kind == "ClusterPolicy" and .metadata.name == "add-default-deny") |
           .spec.rules[] |
           select(.name == $rule_name) |
+          select(.exclude.any[0].resources.names | index("observability")) |
+          select(.generate.data.spec.endpointSelector == {})] | length'
+    )"
+    if [[ "${matches}" != "1" ]]; then
+      echo "add-default-deny/${rule_name} must retain the global guardrail and exclude observability for its scoped replacement in ${rendered_path}" >&2
+      return 1
+    fi
+
+    scoped_rule_name="${rule_name}-observability"
+    matches="$(
+      yq eval-all -o=json '.' "${rendered_path}" |
+        jq -s --arg rule_name "${scoped_rule_name}" '[.[] |
+          select(.kind == "ClusterPolicy" and .metadata.name == "add-default-deny") |
+          .spec.rules[] |
+          select(.name == $rule_name) |
+          select(.match.any[0].resources.kinds == ["Namespace"]) |
+          select(.match.any[0].resources.names == ["observability"]) |
           select(.generate.data.spec.endpointSelector.matchExpressions == [{
             "key":"platform-heartbeat",
             "operator":"DoesNotExist"
           }])] | length'
     )"
     if [[ "${matches}" != "1" ]]; then
-      echo "add-default-deny/${rule_name} must exclude only the dedicated heartbeat label in ${rendered_path}" >&2
+      echo "add-default-deny/${scoped_rule_name} must scope the heartbeat exclusion to observability in ${rendered_path}" >&2
       return 1
     fi
   done
@@ -801,10 +819,11 @@ for documented_boundary in \
   "retires the legacy Loki and Alloy log path" \
   "stages one hardened \`cluster-heartbeat\` CronJob" \
   "reuses the existing encrypted heartbeat URL" \
-  "exact \`hc-ping.com\` DNS query" \
-  "\`hc-ping.com:443\`" \
+  "configured heartbeat hostname's exact DNS query" \
+  "\`alertmanager_heartbeat_host\`" \
   "runs at platform-critical priority" \
   "disables only Watchdog" \
+  "host is derived automatically" \
   "does not add a new secret" \
   "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
@@ -824,11 +843,24 @@ for documented_boundary in \
   fi
 done
 
+bootstrap_workflow="${repo_root}/.github/workflows/bootstrap.yaml"
+for heartbeat_host_boundary in \
+  "heartbeat_host=\"\${ALERTMANAGER_HEARTBEAT_URL#*://}\"" \
+  "heartbeat_host=\"\${heartbeat_host%%/*}\"" \
+  "ALERTMANAGER_HEARTBEAT_HOST=\"\${heartbeat_host%%:*}\"" \
+  '.stringData.alertmanager_heartbeat_host = strenv(ALERTMANAGER_HEARTBEAT_HOST)'; do
+  if ! grep -Fq "${heartbeat_host_boundary}" "${bootstrap_workflow}"; then
+    echo "bootstrap workflow does not derive the heartbeat policy host from the configured URL: ${heartbeat_host_boundary}" >&2
+    exit 1
+  fi
+done
+
 alerting_guide="${repo_root}/docs/dr/alerting.md"
 for documented_heartbeat_boundary in \
   "The default profile keeps the \`Watchdog\` alert" \
   "The Coroot profile uses the dedicated \`cluster-heartbeat\` CronJob" \
-  "hc-ping.com:443" \
+  "policy host is derived automatically" \
+  "alertmanager_heartbeat_host" \
   "disables Watchdog" \
   "Flux reconciliation alerting still depends on kube-prometheus-stack"; do
   if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then

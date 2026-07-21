@@ -190,9 +190,33 @@ jobs:
         run: |
           set -euo pipefail
           # Internal secrets that need no human input — generate random values.
-          export DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
-          export FLUX_WEB_CLIENT_SECRET="$(openssl rand -hex 32)"
-          export OAUTH2_PROXY_COOKIE_SECRET="$(openssl rand -base64 32)"
+          DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
+          FLUX_WEB_CLIENT_SECRET="$(openssl rand -hex 32)"
+          OAUTH2_PROXY_COOKIE_SECRET="$(openssl rand -base64 32)"
+          export DEX_CLIENT_SECRET FLUX_WEB_CLIENT_SECRET OAUTH2_PROXY_COOKIE_SECRET
+
+          # Derive the non-secret FQDN used by the Coroot heartbeat policy from
+          # the existing URL input. This keeps custom monitor providers working
+          # without adding another GitHub secret or operator-supplied value.
+          ALERTMANAGER_HEARTBEAT_HOST="hc-ping.com"
+          if [[ -n "${ALERTMANAGER_HEARTBEAT_URL:-}" ]]; then
+            if [[ "${ALERTMANAGER_HEARTBEAT_URL}" != https://* ]]; then
+              echo "ALERTMANAGER_HEARTBEAT_URL must use https://" >&2
+              exit 1
+            fi
+            heartbeat_host="${ALERTMANAGER_HEARTBEAT_URL#*://}"
+            heartbeat_host="${heartbeat_host%%/*}"
+            ALERTMANAGER_HEARTBEAT_HOST="${heartbeat_host%%:*}"
+            if [[ -z "${ALERTMANAGER_HEARTBEAT_HOST}" ||
+              "${ALERTMANAGER_HEARTBEAT_HOST}" == *[!A-Za-z0-9.-]* ||
+              "${ALERTMANAGER_HEARTBEAT_HOST}" == .* ||
+              "${ALERTMANAGER_HEARTBEAT_HOST}" == *. ||
+              "${ALERTMANAGER_HEARTBEAT_HOST}" == *..* ]]; then
+              echo "ALERTMANAGER_HEARTBEAT_URL must contain a valid DNS hostname" >&2
+              exit 1
+            fi
+          fi
+          export ALERTMANAGER_HEARTBEAT_HOST
 
           fill_base() { # variables-base-secret
             yq -i '
@@ -207,6 +231,7 @@ jobs:
           yq -i '
             .stringData.alertmanager_webhook_url = strenv(ALERTMANAGER_WEBHOOK_URL) |
             .stringData.alertmanager_heartbeat_url = strenv(ALERTMANAGER_HEARTBEAT_URL) |
+            .stringData.alertmanager_heartbeat_host = strenv(ALERTMANAGER_HEARTBEAT_HOST) |
             .stringData.dex_client_secret = strenv(DEX_CLIENT_SECRET) |
             .stringData.flux_web_client_secret = strenv(FLUX_WEB_CLIENT_SECRET) |
             .stringData.oauth2_proxy_cookie_secret = strenv(OAUTH2_PROXY_COOKIE_SECRET) |
