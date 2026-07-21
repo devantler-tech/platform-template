@@ -147,8 +147,12 @@ assert_coroot_heartbeat_contract() {
         select($container.image == "docker.io/curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13") |
         select($container.command == [
           "/bin/sh",
-          "-c",
-          "curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"${alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}\" || true"
+          "-c"
+        ]) |
+        select($container.args == [
+          "curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"$1\" || true",
+          "cluster-heartbeat",
+          "${alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}"
         ]) |
         select($container.securityContext.allowPrivilegeEscalation == false) |
         select($container.securityContext.readOnlyRootFilesystem == true) |
@@ -229,8 +233,13 @@ assert_coroot_heartbeat_substitution() {
     yq eval-all -o=json '.' "${substituted_path}" |
       jq -s --arg heartbeat_url "${heartbeat_url}" '[.[] |
         select(.kind == "CronJob" and .metadata.namespace == "observability" and .metadata.name == "cluster-heartbeat") |
-        select(.spec.jobTemplate.spec.template.spec.containers[0].command[2] ==
-          ("curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"" + $heartbeat_url + "\" || true"))] | length'
+        .spec.jobTemplate.spec.template.spec.containers[0] as $container |
+        select($container.command == ["/bin/sh", "-c"]) |
+        select($container.args == [
+          "curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"$1\" || true",
+          "cluster-heartbeat",
+          $heartbeat_url
+        ])] | length'
   )"
   policy_matches="$(
     yq eval-all -o=json '.' "${substituted_path}" |
@@ -271,6 +280,7 @@ assert_heartbeat_policy_exclusion() {
   local rendered_path="$1"
   local rule_name
   local scoped_rule_name
+  local expected_spec
   local matches
 
   for rule_name in generate-default-deny generate-allow-dns; do
@@ -289,21 +299,34 @@ assert_heartbeat_policy_exclusion() {
     fi
 
     scoped_rule_name="${rule_name}-observability"
+    if [[ "${rule_name}" == "generate-default-deny" ]]; then
+      expected_spec='{
+        "endpointSelector":{"matchExpressions":[{"key":"platform-heartbeat","operator":"DoesNotExist"}]},
+        "enableDefaultDeny":{"ingress":true,"egress":true},
+        "ingressDeny":[{}],
+        "egressDeny":[{}]
+      }'
+    else
+      expected_spec='{
+        "endpointSelector":{"matchExpressions":[{"key":"platform-heartbeat","operator":"DoesNotExist"}]},
+        "egress":[{
+          "toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s-app":"kube-dns"}}],
+          "toPorts":[{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}]}]
+        }]
+      }'
+    fi
     matches="$(
       yq eval-all -o=json '.' "${rendered_path}" |
-        jq -s --arg rule_name "${scoped_rule_name}" '[.[] |
+        jq -s --arg rule_name "${scoped_rule_name}" --argjson expected_spec "${expected_spec}" '[.[] |
           select(.kind == "ClusterPolicy" and .metadata.name == "add-default-deny") |
           .spec.rules[] |
           select(.name == $rule_name) |
           select(.match.any[0].resources.kinds == ["Namespace"]) |
           select(.match.any[0].resources.names == ["observability"]) |
-          select(.generate.data.spec.endpointSelector.matchExpressions == [{
-            "key":"platform-heartbeat",
-            "operator":"DoesNotExist"
-          }])] | length'
+          select(.generate.data.spec == $expected_spec)] | length'
     )"
     if [[ "${matches}" != "1" ]]; then
-      echo "add-default-deny/${scoped_rule_name} must scope the heartbeat exclusion to observability in ${rendered_path}" >&2
+      echo "add-default-deny/${scoped_rule_name} must retain its complete scoped policy body in ${rendered_path}" >&2
       return 1
     fi
   done
