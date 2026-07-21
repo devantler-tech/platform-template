@@ -114,11 +114,13 @@ assert_default_off() {
 
 assert_coroot_heartbeat_contract() {
   local rendered_path="$1"
+  local heartbeat_count
   local cronjob_contract
   local heartbeat_egress_contract
   local coroot_selector_contract
   local broad_external_egress
 
+  heartbeat_count="$(resource_count "${rendered_path}" CronJob observability cluster-heartbeat)"
   cronjob_contract="$(
     yq eval-all -o=json '.' "${rendered_path}" |
       jq -s '[.[] |
@@ -180,7 +182,7 @@ assert_coroot_heartbeat_contract() {
         select(any(.toEntities[]?; . == "world" or . == "all") or any(.toFQDNs[]?; has("matchPattern")))] | length'
   )"
 
-  if [[ "${cronjob_contract}" != "1" ]]; then
+  if [[ "${heartbeat_count}" != "1" || "${cronjob_contract}" != "1" ]]; then
     echo "Coroot profile must render one hardened five-minute cluster heartbeat in ${rendered_path}" >&2
     return 1
   fi
