@@ -100,6 +100,7 @@ assert_flux_path() {
   fi
 }
 
+# Verifies that the default profiles render no Coroot-owned resources.
 assert_default_off() {
   local rendered_path="$1"
 

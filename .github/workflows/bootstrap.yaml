@@ -225,7 +225,8 @@ jobs:
           fi
           export ALERTMANAGER_HEARTBEAT_HOST
 
-          fill_base() { # variables-base-secret
+          # Populates the base Secret fields shared by every generated instance.
+          fill_base() {
             yq -i '
               .stringData.cloudflare_api_token = strenv(CLOUDFLARE_API_TOKEN) |
               .stringData.r2_access_key_id = strenv(R2_ACCESS_KEY_ID) |
