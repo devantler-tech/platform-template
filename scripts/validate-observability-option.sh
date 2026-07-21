@@ -163,6 +163,8 @@ assert_coroot_heartbeat_contract() {
       jq -s '[.[] |
         select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-cluster-heartbeat") |
         select(.spec.endpointSelector.matchLabels == {"platform-heartbeat":"true"}) |
+        select(.spec.enableDefaultDeny == {"ingress":true,"egress":true}) |
+        select(.spec.ingressDeny == [{}]) |
         select(.spec.egress | length == 2) |
         select(any(.spec.egress[];
           .toFQDNs == [{"matchName":"hc-ping.com"}] and

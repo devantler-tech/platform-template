@@ -7,6 +7,11 @@ spec:
   endpointSelector:
     matchLabels:
       platform-heartbeat: "true"
+  enableDefaultDeny:
+    ingress: true
+    egress: true
+  ingressDeny:
+    - {}
   egress:
     - toFQDNs:
         - matchName: hc-ping.com
