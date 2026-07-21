@@ -578,9 +578,9 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 1
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
-    assert_resource_count "${rendered_path}" HelmRelease monitoring kube-prometheus-stack 1
-    assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 1
-    assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 1
+  assert_resource_count "${rendered_path}" HelmRelease monitoring kube-prometheus-stack 1
+  assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 1
+  assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 1
   assert_opencost_absent "${rendered_path}"
   assert_coroot_sso_controller_contract "${rendered_path}"
   assert_coroot_heartbeat_contract "${rendered_path}"
