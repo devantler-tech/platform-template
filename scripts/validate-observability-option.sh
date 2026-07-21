@@ -16,6 +16,7 @@ render() {
   fi
 }
 
+# Counts one exact kind/namespace/name identity in a multi-document render.
 resource_count() {
   local rendered_path="$1"
   local kind="$2"
@@ -61,6 +62,7 @@ loki_service_reference_count() {
     jq -s '[.[] | select(type == "object" and (tojson | test("loki\\.monitoring\\.svc")))] | length'
 }
 
+# Fails closed when an exact rendered identity is missing or duplicated.
 assert_resource_count() {
   local rendered_path="$1"
   local kind="$2"
