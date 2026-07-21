@@ -126,7 +126,9 @@ assert_coroot_heartbeat_contract() {
         select(.spec.startingDeadlineSeconds == 30) |
         select(.spec.successfulJobsHistoryLimit == 1 and .spec.failedJobsHistoryLimit == 1) |
         select(.spec.jobTemplate.spec.backoffLimit == 0 and .spec.jobTemplate.spec.activeDeadlineSeconds == 120) |
-        .spec.jobTemplate.spec.template.spec as $pod |
+        .spec.jobTemplate.spec.template as $template |
+        select($template.metadata.labels.app == "cluster-heartbeat") |
+        $template.spec as $pod |
         select($pod.restartPolicy == "Never" and $pod.automountServiceAccountToken == false) |
         select($pod.securityContext.runAsNonRoot == true and $pod.securityContext.runAsUser == 65532) |
         select($pod.securityContext.seccompProfile.type == "RuntimeDefault") |
@@ -134,13 +136,19 @@ assert_coroot_heartbeat_contract() {
         $pod.containers[0] as $container |
         select($container.name == "heartbeat") |
         select($container.image == "docker.io/curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13") |
-        select($container.command[0:2] == ["/bin/sh", "-c"]) |
-        select($container.command[2] | contains("${alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}")) |
-        select($container.command[2] | contains("|| true")) |
+        select($container.command == [
+          "/bin/sh",
+          "-c",
+          "curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"${alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}\" || true"
+        ]) |
         select($container.securityContext.allowPrivilegeEscalation == false) |
         select($container.securityContext.readOnlyRootFilesystem == true) |
         select($container.securityContext.runAsNonRoot == true and $container.securityContext.runAsUser == 65532 and $container.securityContext.runAsGroup == 65532) |
-        select($container.securityContext.capabilities.drop == ["ALL"])] | length'
+        select($container.securityContext.capabilities.drop == ["ALL"]) |
+        select($container.resources == {
+          "requests":{"cpu":"5m","memory":"16Mi"},
+          "limits":{"cpu":"50m","memory":"32Mi"}
+        })] | length'
   )"
   heartbeat_egress_contract="$(
     yq eval-all -o=json '.' "${rendered_path}" |
