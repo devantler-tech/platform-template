@@ -7,7 +7,9 @@ spec:
   endpointSelector:
     matchExpressions:
       - key: platform-heartbeat
-        operator: DoesNotExist
+        operator: NotIn
+        values:
+          - "true"
   ingress:
     # Coroot, its bundled stores, its agents, and the audit forwarder exchange
     # telemetry inside this namespace.

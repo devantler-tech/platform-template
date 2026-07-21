@@ -51,7 +51,9 @@ patches:
                 endpointSelector:
                   matchExpressions:
                     - key: platform-heartbeat
-                      operator: DoesNotExist
+                      operator: NotIn
+                      values:
+                        - "true"
                 enableDefaultDeny:
                   ingress: true
                   egress: true
@@ -82,7 +84,9 @@ patches:
                 endpointSelector:
                   matchExpressions:
                     - key: platform-heartbeat
-                      operator: DoesNotExist
+                      operator: NotIn
+                      values:
+                        - "true"
                 egress:
                   - toEndpoints:
                       - matchLabels:

@@ -167,22 +167,30 @@ assert_coroot_heartbeat_contract() {
     yq eval-all -o=json '.' "${rendered_path}" |
       jq -s '[.[] |
         select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-cluster-heartbeat") |
-        select(.spec.endpointSelector.matchLabels == {"platform-heartbeat":"true"}) |
-        select(.spec.enableDefaultDeny == {"ingress":true,"egress":true}) |
-        select(.spec.ingressDeny == [{}]) |
-        select(.spec.egress | length == 2) |
-        select(any(.spec.egress[];
-          .toFQDNs == [{"matchName":"hc-ping.com"}] and
-          .toPorts == [{"ports":[{"port":"443","protocol":"TCP"}]}])) |
-        select(any(.spec.egress[];
-          .toEndpoints == [{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s-app":"kube-dns"}}] and
-          .toPorts == [{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}],"rules":{"dns":[{"matchName":"hc-ping.com"}]}}]))] | length'
+        select(.spec == {
+          "endpointSelector":{"matchLabels":{"platform-heartbeat":"true"}},
+          "enableDefaultDeny":{"ingress":true,"egress":true},
+          "ingressDeny":[{}],
+          "egress":[
+            {
+              "toFQDNs":[{"matchName":"hc-ping.com"}],
+              "toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]
+            },
+            {
+              "toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s-app":"kube-dns"}}],
+              "toPorts":[{
+                "ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}],
+                "rules":{"dns":[{"matchName":"hc-ping.com"}]}
+              }]
+            }
+          ]
+        })] | length'
   )"
   coroot_selector_contract="$(
     yq eval-all -o=json '.' "${rendered_path}" |
       jq -s '[.[] |
         select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") |
-        select(.spec.endpointSelector.matchExpressions == [{"key":"platform-heartbeat","operator":"DoesNotExist"}]) |
+        select(.spec.endpointSelector.matchExpressions == [{"key":"platform-heartbeat","operator":"NotIn","values":["true"]}]) |
         select(all(.spec.egress[]?.toFQDNs[]?; .matchName != "hc-ping.com"))] | length'
   )"
   broad_external_egress="$(
@@ -255,21 +263,21 @@ assert_coroot_heartbeat_substitution() {
   fi
 }
 
-# Validates the expected Watchdog state in default and Coroot profiles.
-assert_watchdog_disabled() {
+# Validates that kube-prometheus-stack still produces the Watchdog rule.
+assert_watchdog_rendered() {
   local rendered_path="$1"
-  local expected="$2"
-  local actual
+  local matches
 
-  actual="$(
+  matches="$(
     yq eval-all -o=json '.' "${rendered_path}" |
-      jq -s -r '[.[] |
+      jq -s '[.[] |
         select(.kind == "HelmRelease" and .metadata.namespace == "monitoring" and .metadata.name == "kube-prometheus-stack") |
-        (.spec.values.defaultRules.disabled.Watchdog // false)] |
-        if length == 1 then .[0] else "invalid-count:\(length)" end'
+        select(.spec.values.defaultRules.create == true) |
+        select((.spec.values.defaultRules.rules.general // true) == true) |
+        select((.spec.values.defaultRules.disabled.Watchdog // false) == false)] | length'
   )"
-  if [[ "${actual}" != "${expected}" ]]; then
-    echo "expected kube-prometheus-stack Watchdog disabled=${expected} in ${rendered_path}, found ${actual}" >&2
+  if [[ "${matches}" != "1" ]]; then
+    echo "kube-prometheus-stack must render its enabled general/Watchdog rule in ${rendered_path}" >&2
     return 1
   fi
 }
@@ -301,14 +309,14 @@ assert_heartbeat_policy_exclusion() {
     scoped_rule_name="${rule_name}-observability"
     if [[ "${rule_name}" == "generate-default-deny" ]]; then
       expected_spec='{
-        "endpointSelector":{"matchExpressions":[{"key":"platform-heartbeat","operator":"DoesNotExist"}]},
+        "endpointSelector":{"matchExpressions":[{"key":"platform-heartbeat","operator":"NotIn","values":["true"]}]},
         "enableDefaultDeny":{"ingress":true,"egress":true},
         "ingressDeny":[{}],
         "egressDeny":[{}]
       }'
     else
       expected_spec='{
-        "endpointSelector":{"matchExpressions":[{"key":"platform-heartbeat","operator":"DoesNotExist"}]},
+        "endpointSelector":{"matchExpressions":[{"key":"platform-heartbeat","operator":"NotIn","values":["true"]}]},
         "egress":[{
           "toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s-app":"kube-dns"}}],
           "toPorts":[{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}]}]
@@ -695,7 +703,7 @@ done
 # Only the explicit Coroot profiles retire it.
 for rendered_path in "${local_controllers_default}" "${prod_controllers_default}"; do
   assert_opencost_present "${rendered_path}"
-  assert_watchdog_disabled "${rendered_path}" false
+  assert_watchdog_rendered "${rendered_path}"
 done
 for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_default}"; do
   assert_opencost_resources_absent "${rendered_path}"
@@ -760,7 +768,7 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_coroot_sso_controller_contract "${rendered_path}"
   assert_coroot_heartbeat_contract "${rendered_path}"
   assert_coroot_heartbeat_substitution "${rendered_path}"
-  assert_watchdog_disabled "${rendered_path}" false
+  assert_watchdog_rendered "${rendered_path}"
 done
 
 for rendered_path in "${docker_infrastructure}" "${hetzner_infrastructure}"; do
