@@ -6,10 +6,8 @@ metadata:
 spec:
   endpointSelector:
     matchExpressions:
-      - key: app
-        operator: NotIn
-        values:
-          - cluster-heartbeat
+      - key: platform-heartbeat
+        operator: DoesNotExist
   ingress:
     # Coroot, its bundled stores, its agents, and the audit forwarder exchange
     # telemetry inside this namespace.

@@ -90,10 +90,15 @@ Per-alert notifications remain visible only in the Coroot UI; this avoids sendin
 every noisy alert to the shared webhook. Local / Docker Coroot stays notification-free.
 The profile also stages one hardened `cluster-heartbeat` CronJob for the cluster
 dead-man signal. It reuses the existing encrypted heartbeat URL and does not add a new secret.
-Its policy permits only `hc-ping.com:443`; the invalid fallback keeps local and
-unconfigured instances inert. Kube-prometheus-stack keeps owning its alert rules,
-including Flux reconciliation alerts, until that remaining metrics and alerting
-migration is delivered separately.
+It runs at platform-critical priority, and its dedicated policy permits only an
+exact `hc-ping.com` DNS query plus `hc-ping.com:443`. The namespace deny and broad
+DNS policies exclude only the CronJob's purpose-specific label, so their explicit
+deny cannot override the narrower workload policy. The invalid fallback keeps
+local and unconfigured instances inert. The profile disables only Watchdog to
+prevent Alertmanager from refreshing the same external check and masking a broken
+CronJob. Kube-prometheus-stack keeps owning its alert rules except Watchdog,
+including Flux reconciliation alerts, until that remaining migration is delivered
+separately.
 
 Open the Coroot UI at `https://observability.<your-domain>`. Community Edition
 does not provide native OIDC, so this profile sends every UI request through the

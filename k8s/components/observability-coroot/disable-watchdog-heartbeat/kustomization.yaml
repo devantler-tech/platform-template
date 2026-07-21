@@ -1,0 +1,24 @@
+---
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# Coroot profiles use the dedicated cluster-heartbeat CronJob for the existing
+# external check. Disable only Watchdog so Alertmanager cannot refresh the same
+# URL and mask a broken CronJob; every other default alert stays enabled.
+patches:
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: kube-prometheus-stack
+      namespace: monitoring
+    patch: |
+      apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: kube-prometheus-stack
+        namespace: monitoring
+      spec:
+        values:
+          defaultRules:
+            disabled:
+              Watchdog: true

@@ -43,7 +43,14 @@ spec:
         namespace: "{{request.object.metadata.name}}"
         data:
           spec:
-            endpointSelector: {}
+            # This one purpose-specific label is handled by an exact workload
+            # policy. Keeping the exclusion here prevents the explicit deny
+            # from overriding that narrower allow-list without creating a
+            # generic opt-out from the namespace guardrail.
+            endpointSelector:
+              matchExpressions:
+                - key: platform-heartbeat
+                  operator: DoesNotExist
             enableDefaultDeny:
               ingress: true
               egress: true
@@ -73,7 +80,13 @@ spec:
         namespace: "{{request.object.metadata.name}}"
         data:
           spec:
-            endpointSelector: {}
+            # The heartbeat policy carries its own exact DNS rule. Excluding
+            # it here prevents the namespace-wide DNS allow from widening the
+            # workload's permitted query names.
+            endpointSelector:
+              matchExpressions:
+                - key: platform-heartbeat
+                  operator: DoesNotExist
             egress:
               - toEndpoints:
                   - matchLabels:

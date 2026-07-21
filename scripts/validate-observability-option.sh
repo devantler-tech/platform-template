@@ -134,8 +134,10 @@ assert_coroot_heartbeat_contract() {
         select(.spec.jobTemplate.spec.backoffLimit == 0 and .spec.jobTemplate.spec.activeDeadlineSeconds == 120) |
         .spec.jobTemplate.spec.template as $template |
         select($template.metadata.labels.app == "cluster-heartbeat") |
+        select($template.metadata.labels["platform-heartbeat"] == "true") |
         $template.spec as $pod |
         select($pod.restartPolicy == "Never" and $pod.automountServiceAccountToken == false) |
+        select($pod.priorityClassName == "platform-critical") |
         select($pod.securityContext.runAsNonRoot == true and $pod.securityContext.runAsUser == 65532) |
         select($pod.securityContext.seccompProfile.type == "RuntimeDefault") |
         select($pod.containers | length == 1) |
@@ -160,20 +162,20 @@ assert_coroot_heartbeat_contract() {
     yq eval-all -o=json '.' "${rendered_path}" |
       jq -s '[.[] |
         select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-cluster-heartbeat") |
-        select(.spec.endpointSelector.matchLabels == {"app":"cluster-heartbeat"}) |
+        select(.spec.endpointSelector.matchLabels == {"platform-heartbeat":"true"}) |
         select(.spec.egress | length == 2) |
         select(any(.spec.egress[];
           .toFQDNs == [{"matchName":"hc-ping.com"}] and
           .toPorts == [{"ports":[{"port":"443","protocol":"TCP"}]}])) |
         select(any(.spec.egress[];
           .toEndpoints == [{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s-app":"kube-dns"}}] and
-          .toPorts == [{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}],"rules":{"dns":[{"matchPattern":"*"}]}}]))] | length'
+          .toPorts == [{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}],"rules":{"dns":[{"matchName":"hc-ping.com"}]}}]))] | length'
   )"
   coroot_selector_contract="$(
     yq eval-all -o=json '.' "${rendered_path}" |
       jq -s '[.[] |
         select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") |
-        select(.spec.endpointSelector.matchExpressions == [{"key":"app","operator":"NotIn","values":["cluster-heartbeat"]}]) |
+        select(.spec.endpointSelector.matchExpressions == [{"key":"platform-heartbeat","operator":"DoesNotExist"}]) |
         select(all(.spec.egress[]?.toFQDNs[]?; .matchName != "hc-ping.com"))] | length'
   )"
   broad_external_egress="$(
@@ -192,6 +194,51 @@ assert_coroot_heartbeat_contract() {
     echo "Coroot heartbeat must be excluded from the shared policy and have one exact hc-ping.com:443 egress path without wildcard or world access in ${rendered_path}" >&2
     return 1
   fi
+}
+
+# Validates that only explicit Coroot profiles replace the Watchdog heartbeat.
+assert_watchdog_disabled() {
+  local rendered_path="$1"
+  local expected="$2"
+  local actual
+
+  actual="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s -r '[.[] |
+        select(.kind == "HelmRelease" and .metadata.namespace == "monitoring" and .metadata.name == "kube-prometheus-stack") |
+        (.spec.values.defaultRules.disabled.Watchdog // false)] |
+        if length == 1 then .[0] else "invalid-count:\(length)" end'
+  )"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "expected kube-prometheus-stack Watchdog disabled=${expected} in ${rendered_path}, found ${actual}" >&2
+    return 1
+  fi
+}
+
+# Validates that generated deny and DNS policies defer the dedicated heartbeat
+# label to its narrower workload policy without creating a generic bypass.
+assert_heartbeat_policy_exclusion() {
+  local rendered_path="$1"
+  local rule_name
+  local matches
+
+  for rule_name in generate-default-deny generate-allow-dns; do
+    matches="$(
+      yq eval-all -o=json '.' "${rendered_path}" |
+        jq -s --arg rule_name "${rule_name}" '[.[] |
+          select(.kind == "ClusterPolicy" and .metadata.name == "add-default-deny") |
+          .spec.rules[] |
+          select(.name == $rule_name) |
+          select(.generate.data.spec.endpointSelector.matchExpressions == [{
+            "key":"platform-heartbeat",
+            "operator":"DoesNotExist"
+          }])] | length'
+    )"
+    if [[ "${matches}" != "1" ]]; then
+      echo "add-default-deny/${rule_name} must exclude only the dedicated heartbeat label in ${rendered_path}" >&2
+      return 1
+    fi
+  done
 }
 
 assert_opencost_present() {
@@ -522,6 +569,7 @@ done
 # Only the explicit Coroot profiles retire it.
 for rendered_path in "${local_controllers_default}" "${prod_controllers_default}"; do
   assert_opencost_present "${rendered_path}"
+  assert_watchdog_disabled "${rendered_path}" false
 done
 for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_default}"; do
   assert_opencost_resources_absent "${rendered_path}"
@@ -531,6 +579,7 @@ for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_de
   assert_security_exception_namespace_count "${rendered_path}" infrastructure-privileged observability 0
   assert_security_exception_namespace_count "${rendered_path}" controller-rbac observability 0
   assert_security_exception_namespace_count "${rendered_path}" service-account-tokens observability 0
+  assert_heartbeat_policy_exclusion "${rendered_path}"
 done
 assert_opencost_reference_count "${local_apps_default}" 1
 assert_opencost_reference_count "${prod_apps_default}" 1
@@ -584,6 +633,7 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_opencost_absent "${rendered_path}"
   assert_coroot_sso_controller_contract "${rendered_path}"
   assert_coroot_heartbeat_contract "${rendered_path}"
+  assert_watchdog_disabled "${rendered_path}" true
 done
 
 for rendered_path in "${docker_infrastructure}" "${hetzner_infrastructure}"; do
@@ -594,6 +644,7 @@ for rendered_path in "${docker_infrastructure}" "${hetzner_infrastructure}"; do
   assert_security_exception_namespace_count "${rendered_path}" controller-rbac observability 1
   assert_security_exception_namespace_count "${rendered_path}" service-account-tokens observability 1
   assert_security_exception_namespace_count "${rendered_path}" health-probes observability 0
+  assert_heartbeat_policy_exclusion "${rendered_path}"
 done
 
 assert_resource_count "${docker_infrastructure}" HelmRelease observability coroot-operator 0
@@ -748,7 +799,10 @@ for documented_boundary in \
   "retires the legacy Loki and Alloy log path" \
   "stages one hardened \`cluster-heartbeat\` CronJob" \
   "reuses the existing encrypted heartbeat URL" \
-  "permits only \`hc-ping.com:443\`" \
+  "exact \`hc-ping.com\` DNS query" \
+  "\`hc-ping.com:443\`" \
+  "runs at platform-critical priority" \
+  "disables only Watchdog" \
   "does not add a new secret" \
   "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
@@ -773,6 +827,7 @@ for documented_heartbeat_boundary in \
   "The default profile keeps the \`Watchdog\` alert" \
   "The Coroot profile uses the dedicated \`cluster-heartbeat\` CronJob" \
   "hc-ping.com:443" \
+  "disables Watchdog" \
   "Flux reconciliation alerting still depends on kube-prometheus-stack"; do
   if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
     echo "alerting guide does not retain heartbeat boundary: ${documented_heartbeat_boundary}" >&2

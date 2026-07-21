@@ -30,9 +30,11 @@ spec:
         metadata:
           labels:
             app: cluster-heartbeat
+            platform-heartbeat: "true"
         spec:
           restartPolicy: Never
           automountServiceAccountToken: false
+          priorityClassName: platform-critical
           securityContext:
             runAsNonRoot: true
             runAsUser: 65532

@@ -6,7 +6,7 @@ metadata:
 spec:
   endpointSelector:
     matchLabels:
-      app: cluster-heartbeat
+      platform-heartbeat: "true"
   egress:
     - toFQDNs:
         - matchName: hc-ping.com
@@ -27,4 +27,4 @@ spec:
               protocol: TCP
           rules:
             dns:
-              - matchPattern: "*"
+              - matchName: hc-ping.com

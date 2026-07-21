@@ -59,10 +59,14 @@ Slack out-of-band.
 
 The Coroot profile uses the dedicated `cluster-heartbeat` CronJob instead. It
 pings the same existing URL every five minutes, independently of Coroot, and
-its network policy allows only `hc-ping.com:443`. The invalid fallback keeps
-local and unconfigured instances quiet. Flux reconciliation alerting still depends on kube-prometheus-stack,
-so that stack remains transitional until a later slice replaces those rules
-before removing it.
+its network policy allows only an exact `hc-ping.com` DNS query plus
+`hc-ping.com:443`. The namespace deny and broad DNS policies exclude only this
+purpose-labelled workload. The Coroot profile disables Watchdog so Alertmanager
+cannot refresh the same external check and hide a failed CronJob. The invalid
+fallback keeps local and unconfigured instances quiet.
+Flux reconciliation alerting still depends on kube-prometheus-stack, so that stack
+remains
+transitional until a later slice replaces those rules before removing it.
 
 Recommended monitor: [healthchecks.io](https://healthchecks.io) (free,
 open-source, native Slack integration). Create a check with a ~5 min
