@@ -1,0 +1,67 @@
+# Cluster-level dead-man's-switch. Every five minutes a pod pings the
+# per-cluster external heartbeat monitor. The monitor alerts out of band when
+# pings stop, covering the one failure that in-cluster alerting cannot report:
+# the whole cluster being unavailable.
+#
+# The ping is unconditional. Component health remains Coroot's responsibility;
+# coupling this signal to Coroot would turn a component outage into a false
+# cluster-down alarm.
+#
+# The URL comes from the existing Flux substitution input. Local and
+# unconfigured clusters use the invalid fallback, and `|| true` keeps the Job
+# from flapping when no external monitor is configured. The signal is the
+# absence of pings at the external monitor, not the Job exit code.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cluster-heartbeat
+  namespace: observability
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            app: cluster-heartbeat
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: heartbeat
+              image: docker.io/curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13
+              command:
+                - /bin/sh
+                - -c
+                - >-
+                  curl -sf --max-time 10
+                  --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused
+                  "${alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}"
+                  || true
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65532
+                runAsGroup: 65532
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 5m
+                  memory: 16Mi
+                limits:
+                  cpu: 50m
+                  memory: 32Mi

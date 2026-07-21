@@ -88,8 +88,12 @@ variable for Coroot incident and resolution notifications. Its matching provider
 policy permits only `hooks.slack.com:443`, so keep this value a Slack incoming-webhook URL.
 Per-alert notifications remain visible only in the Coroot UI; this avoids sending
 every noisy alert to the shared webhook. Local / Docker Coroot stays notification-free.
-Kube-prometheus-stack keeps owning its alert rules until that remaining metrics
-and alerting migration is delivered separately.
+The profile also stages one hardened `cluster-heartbeat` CronJob for the cluster
+dead-man signal. It reuses the existing encrypted heartbeat URL and does not add a new secret.
+Its policy permits only `hc-ping.com:443`; the invalid fallback keeps local and
+unconfigured instances inert. Kube-prometheus-stack keeps owning its alert rules,
+including Flux reconciliation alerts, until that remaining metrics and alerting
+migration is delivered separately.
 
 Open the Coroot UI at `https://observability.<your-domain>`. Community Edition
 does not provide native OIDC, so this profile sends every UI request through the

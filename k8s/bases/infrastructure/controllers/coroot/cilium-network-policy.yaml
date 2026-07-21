@@ -41,6 +41,15 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
+    # The profile's cluster dead-man switch pings only the external heartbeat
+    # service. Keep this separate from Coroot's own upstream allow-list so the
+    # heartbeat boundary stays exact and independently mutation-testable.
+    - toFQDNs:
+        - matchName: hc-ping.com
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
     # DNS resolution also enables Cilium's FQDN proxy for the allow-list above.
     - toEndpoints:
         - matchLabels:

@@ -6,6 +6,7 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - cilium-network-policy.yaml
+  - cron-job.yaml
   - helm-repository.yaml
   - helm-release.yaml
   - http-route.yaml

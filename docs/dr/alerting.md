@@ -51,11 +51,18 @@ clusters get an invalid URL and stay quiet by design.
 ## Dead-man's-switch (off-cluster heartbeat)
 
 In-cluster Alertmanager cannot tell you the cluster is down — it's down
-too. To cover that, the chart's always-firing `Watchdog` alert is routed
-to a dedicated `heartbeat` receiver that POSTs to an **external** monitor
-on a tight cadence (`repeat_interval: 50s`). If the cluster — or the
-Prometheus → Alertmanager pipeline — dies, the monitor stops receiving
-pings and notifies Slack out-of-band.
+too. The default profile keeps the `Watchdog` alert and routes it to a
+dedicated `heartbeat` receiver that POSTs to an **external** monitor on a
+tight cadence (`repeat_interval: 50s`). If the cluster — or the Prometheus →
+Alertmanager pipeline — dies, the monitor stops receiving pings and notifies
+Slack out-of-band.
+
+The Coroot profile uses the dedicated `cluster-heartbeat` CronJob instead. It
+pings the same existing URL every five minutes, independently of Coroot, and
+its network policy allows only `hc-ping.com:443`. The invalid fallback keeps
+local and unconfigured instances quiet. Flux reconciliation alerting still depends on kube-prometheus-stack,
+so that stack remains transitional until a later slice replaces those rules
+before removing it.
 
 Recommended monitor: [healthchecks.io](https://healthchecks.io) (free,
 open-source, native Slack integration). Create a check with a ~5 min

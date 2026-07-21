@@ -719,6 +719,10 @@ for documented_boundary in \
   "This profile is transitional." \
   "removes OpenCost and its Headlamp" \
   "retires the legacy Loki and Alloy log path" \
+  "stages one hardened \`cluster-heartbeat\` CronJob" \
+  "reuses the existing encrypted heartbeat URL" \
+  "permits only \`hc-ping.com:443\`" \
+  "does not add a new secret" \
   "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
   "reuses the existing encrypted webhook" \
@@ -733,6 +737,18 @@ for documented_boundary in \
   "removes the route and the profile-only Admin role together"; do
   if ! grep -Fq "${documented_boundary}" "${templating_guide}"; then
     echo "templating guide does not retain Coroot boundary: ${documented_boundary}" >&2
+    exit 1
+  fi
+done
+
+alerting_guide="${repo_root}/docs/dr/alerting.md"
+for documented_heartbeat_boundary in \
+  "The default profile keeps the \`Watchdog\` alert" \
+  "The Coroot profile uses the dedicated \`cluster-heartbeat\` CronJob" \
+  "hc-ping.com:443" \
+  "Flux reconciliation alerting still depends on kube-prometheus-stack"; do
+  if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
+    echo "alerting guide does not retain heartbeat boundary: ${documented_heartbeat_boundary}" >&2
     exit 1
   fi
 done
