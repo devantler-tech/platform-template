@@ -112,6 +112,8 @@ assert_default_off() {
   assert_resource_count "${rendered_path}" HTTPRoute observability coroot 0
 }
 
+# Validates the singleton workload, isolation selector, and exact egress contract
+# rendered by each explicit Coroot profile.
 assert_coroot_heartbeat_contract() {
   local rendered_path="$1"
   local heartbeat_count
