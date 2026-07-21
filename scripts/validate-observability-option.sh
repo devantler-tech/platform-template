@@ -106,8 +106,66 @@ assert_default_off() {
   assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 0
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
+  assert_resource_count "${rendered_path}" CronJob observability cluster-heartbeat 0
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 0
   assert_resource_count "${rendered_path}" HTTPRoute observability coroot 0
+}
+
+assert_coroot_heartbeat_contract() {
+  local rendered_path="$1"
+  local cronjob_contract
+  local heartbeat_egress_contract
+  local broad_external_egress
+
+  cronjob_contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "CronJob" and .metadata.namespace == "observability" and .metadata.name == "cluster-heartbeat") |
+        select(.spec.schedule == "*/5 * * * *") |
+        select(.spec.concurrencyPolicy == "Forbid") |
+        select(.spec.startingDeadlineSeconds == 30) |
+        select(.spec.successfulJobsHistoryLimit == 1 and .spec.failedJobsHistoryLimit == 1) |
+        select(.spec.jobTemplate.spec.backoffLimit == 0 and .spec.jobTemplate.spec.activeDeadlineSeconds == 120) |
+        .spec.jobTemplate.spec.template.spec as $pod |
+        select($pod.restartPolicy == "Never" and $pod.automountServiceAccountToken == false) |
+        select($pod.securityContext.runAsNonRoot == true and $pod.securityContext.runAsUser == 65532) |
+        select($pod.securityContext.seccompProfile.type == "RuntimeDefault") |
+        select($pod.containers | length == 1) |
+        $pod.containers[0] as $container |
+        select($container.name == "heartbeat") |
+        select($container.image == "docker.io/curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13") |
+        select($container.command[0:2] == ["/bin/sh", "-c"]) |
+        select($container.command[2] | contains("${alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}")) |
+        select($container.command[2] | contains("|| true")) |
+        select($container.securityContext.allowPrivilegeEscalation == false) |
+        select($container.securityContext.readOnlyRootFilesystem == true) |
+        select($container.securityContext.runAsNonRoot == true and $container.securityContext.runAsUser == 65532 and $container.securityContext.runAsGroup == 65532) |
+        select($container.securityContext.capabilities.drop == ["ALL"])] | length'
+  )"
+  heartbeat_egress_contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") |
+        .spec.egress[]? |
+        select(.toFQDNs == [{"matchName":"hc-ping.com"}]) |
+        select(.toPorts == [{"ports":[{"port":"443","protocol":"TCP"}]}])] | length'
+  )"
+  broad_external_egress="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") |
+        .spec.egress[]? |
+        select(any(.toEntities[]?; . == "world" or . == "all") or any(.toFQDNs[]?; has("matchPattern")))] | length'
+  )"
+
+  if [[ "${cronjob_contract}" != "1" ]]; then
+    echo "Coroot profile must render one hardened five-minute cluster heartbeat in ${rendered_path}" >&2
+    return 1
+  fi
+  if [[ "${heartbeat_egress_contract}" != "1" || "${broad_external_egress}" != "0" ]]; then
+    echo "Coroot heartbeat must have one exact hc-ping.com:443 egress path without wildcard or world access in ${rendered_path}" >&2
+    return 1
+  fi
 }
 
 assert_opencost_present() {
@@ -494,9 +552,11 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 1
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
+  assert_resource_count "${rendered_path}" HelmRelease monitoring kube-prometheus-stack 1
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 1
   assert_opencost_absent "${rendered_path}"
   assert_coroot_sso_controller_contract "${rendered_path}"
+  assert_coroot_heartbeat_contract "${rendered_path}"
 done
 
 for rendered_path in "${docker_infrastructure}" "${hetzner_infrastructure}"; do
