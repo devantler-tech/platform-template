@@ -6,8 +6,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
-# Renders a repository-relative profile so every assertion evaluates the effective
-# Kustomize payload independently of the caller's working directory.
+# Renders a repository-relative profile independently of the caller's working directory.
 render() {
   local source_path="$1"
   local output_path="$2"
