@@ -32,6 +32,7 @@ resource_count() {
       '[.[] | select(type == "object" and .kind == $kind and (.metadata.namespace // "") == $namespace and .metadata.name == $name)] | length'
 }
 
+# Counts rendered resources owned by the OpenCost namespace.
 opencost_resource_count() {
   local rendered_path="$1"
 
@@ -39,6 +40,7 @@ opencost_resource_count() {
     jq -s '[.[] | select(type == "object" and ((.kind == "Namespace" and .metadata.name == "opencost") or .metadata.namespace == "opencost"))] | length'
 }
 
+# Counts rendered resources whose serialized content still references OpenCost.
 opencost_reference_count() {
   local rendered_path="$1"
 
@@ -46,6 +48,7 @@ opencost_reference_count() {
     jq -s '[.[] | select(type == "object" and (tojson | test("opencost"; "i")))] | length'
 }
 
+# Counts Grafana data sources that target the retired Loki service.
 loki_datasource_count() {
   local rendered_path="$1"
 
@@ -56,6 +59,7 @@ loki_datasource_count() {
       select(.type == "loki" or ((.url // "") | test("loki\\.monitoring\\.svc")))] | length'
 }
 
+# Counts rendered resources whose serialized content still references Loki.
 loki_service_reference_count() {
   local rendered_path="$1"
 
@@ -79,6 +83,7 @@ assert_resource_count() {
   fi
 }
 
+# Returns the source path for one uniquely rendered Flux Kustomization.
 flux_path() {
   local rendered_path="$1"
   local name="$2"
@@ -90,6 +95,7 @@ flux_path() {
        if length == 1 then .[0].spec.path else "invalid-count:\(length)" end'
 }
 
+# Fails when a Flux Kustomization does not point at the expected profile path.
 assert_flux_path() {
   local rendered_path="$1"
   local name="$2"
@@ -419,6 +425,7 @@ assert_heartbeat_policy_exclusion_absent() {
   fi
 }
 
+# Verifies that a default controller profile retains the complete OpenCost surface.
 assert_opencost_present() {
   local rendered_path="$1"
 
@@ -429,6 +436,7 @@ assert_opencost_present() {
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy opencost allow-opencost 1
 }
 
+# Verifies that a rendered profile contains no OpenCost-owned resources.
 assert_opencost_resources_absent() {
   local rendered_path="$1"
   local actual
@@ -440,6 +448,7 @@ assert_opencost_resources_absent() {
   fi
 }
 
+# Verifies the exact number of rendered resources that reference OpenCost.
 assert_opencost_reference_count() {
   local rendered_path="$1"
   local expected="$2"
@@ -452,6 +461,7 @@ assert_opencost_reference_count() {
   fi
 }
 
+# Verifies that both OpenCost resources and serialized references are absent.
 assert_opencost_absent() {
   local rendered_path="$1"
   local actual
@@ -464,6 +474,7 @@ assert_opencost_absent() {
   fi
 }
 
+# Verifies that Coroot reuses the hardened auth proxy without weakening it.
 assert_auth_proxy_with_coroot() {
   local default_rendered_path="$1"
   local opt_in_rendered_path="$2"
@@ -497,6 +508,7 @@ assert_auth_proxy_with_coroot() {
   fi
 }
 
+# Verifies the Coroot controller profile's SSO and access-control contract.
 assert_coroot_sso_controller_contract() {
   local rendered_path="$1"
   local route_contract
@@ -569,6 +581,7 @@ assert_coroot_sso_controller_contract() {
   fi
 }
 
+# Verifies whether a rendered Coroot project grants the expected admin role.
 assert_coroot_admin_role() {
   local rendered_path="$1"
   local expected="$2"
@@ -593,6 +606,7 @@ assert_coroot_admin_role() {
   fi
 }
 
+# Counts policy rules that omit the required namespace exclusion.
 policy_rules_without_namespace_exclusion() {
   local rendered_path="$1"
   local policy_name="$2"
@@ -611,6 +625,7 @@ policy_rules_without_namespace_exclusion() {
        end'
 }
 
+# Counts policy rules that carry a namespace exclusion.
 policy_rules_with_namespace_exclusion() {
   local rendered_path="$1"
   local policy_name="$2"
@@ -629,6 +644,7 @@ policy_rules_with_namespace_exclusion() {
        end'
 }
 
+# Verifies that every rule in a policy excludes the selected namespace.
 assert_namespace_excluded_from_all_policy_rules() {
   local rendered_path="$1"
   local policy_name="$2"
@@ -642,6 +658,7 @@ assert_namespace_excluded_from_all_policy_rules() {
   fi
 }
 
+# Verifies that no rule in a policy excludes the selected namespace.
 assert_namespace_not_excluded_from_policy() {
   local rendered_path="$1"
   local policy_name="$2"
@@ -655,6 +672,7 @@ assert_namespace_not_excluded_from_policy() {
   fi
 }
 
+# Verifies the exact namespace match count in one security exception.
 assert_security_exception_namespace_count() {
   local rendered_path="$1"
   local exception_name="$2"
