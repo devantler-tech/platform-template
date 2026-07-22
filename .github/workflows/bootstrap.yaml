@@ -179,12 +179,14 @@ jobs:
           grep -rIl 'example-org' k8s/ 2>/dev/null | xargs -r sed -i "s|example-org|${OWNER}|g"
 
       - name: 🔐 Encrypt secrets into *.enc.yaml
+        shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           ALERTMANAGER_WEBHOOK_URL: ${{ secrets.ALERTMANAGER_WEBHOOK_URL }}
           ALERTMANAGER_HEARTBEAT_URL: ${{ secrets.ALERTMANAGER_HEARTBEAT_URL }}
+          CLUSTER_HEARTBEAT_URL: ${{ secrets.CLUSTER_HEARTBEAT_URL }}
           GITHUB_APP_CLIENT_SECRET: ${{ secrets.GITHUB_APP_CLIENT_SECRET }}
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
         run: |
@@ -193,6 +195,35 @@ jobs:
           export DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
           export FLUX_WEB_CLIENT_SECRET="$(openssl rand -hex 32)"
           export OAUTH2_PROXY_COOKIE_SECRET="$(openssl rand -base64 32)"
+
+          # The dedicated Coroot heartbeat has an exact hc-ping.com egress
+          # policy. Reject a configured URL that the cluster cannot reach rather
+          # than encrypting a silently dead monitor. Empty stays valid so default
+          # profiles and operators who have not opted into Coroot remain inert.
+          heartbeat_url_pattern='^https://hc-ping\.com/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$'
+          heartbeat_host_pattern='^https?://([^/?#]*@)?hc-ping\.com([:/?#]|$)'
+          cluster_heartbeat_check_id=""
+          alertmanager_heartbeat_check_id=""
+          alertmanager_heartbeat_url_lower="$(printf '%s' "${ALERTMANAGER_HEARTBEAT_URL}" | tr '[:upper:]' '[:lower:]')"
+          if [ -n "${CLUSTER_HEARTBEAT_URL}" ]; then
+            if [[ ! "${CLUSTER_HEARTBEAT_URL}" =~ ${heartbeat_url_pattern} ]]; then
+              echo "::error::CLUSTER_HEARTBEAT_URL must be a canonical https://hc-ping.com/<lowercase-uuid> URL or be unset"
+              exit 1
+            fi
+            cluster_heartbeat_check_id="${BASH_REMATCH[1]}"
+          fi
+          if [[ "${alertmanager_heartbeat_url_lower}" =~ ${heartbeat_host_pattern} ]]; then
+            if [[ ! "${ALERTMANAGER_HEARTBEAT_URL}" =~ ${heartbeat_url_pattern} ]]; then
+              echo "::error::ALERTMANAGER_HEARTBEAT_URL must be canonical when it uses hc-ping.com"
+              exit 1
+            fi
+            alertmanager_heartbeat_check_id="${BASH_REMATCH[1]}"
+          fi
+          if [ -n "${cluster_heartbeat_check_id}" ] && \
+             [ "${cluster_heartbeat_check_id}" = "${alertmanager_heartbeat_check_id}" ]; then
+            echo "::error::CLUSTER_HEARTBEAT_URL must use a different external check than ALERTMANAGER_HEARTBEAT_URL"
+            exit 1
+          fi
 
           fill_base() { # variables-base-secret
             yq -i '
@@ -207,6 +238,7 @@ jobs:
           yq -i '
             .stringData.alertmanager_webhook_url = strenv(ALERTMANAGER_WEBHOOK_URL) |
             .stringData.alertmanager_heartbeat_url = strenv(ALERTMANAGER_HEARTBEAT_URL) |
+            .stringData.cluster_heartbeat_url = strenv(CLUSTER_HEARTBEAT_URL) |
             .stringData.dex_client_secret = strenv(DEX_CLIENT_SECRET) |
             .stringData.flux_web_client_secret = strenv(FLUX_WEB_CLIENT_SECRET) |
             .stringData.oauth2_proxy_cookie_secret = strenv(OAUTH2_PROXY_COOKIE_SECRET) |

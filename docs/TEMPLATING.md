@@ -88,8 +88,30 @@ variable for Coroot incident and resolution notifications. Its matching provider
 policy permits only `hooks.slack.com:443`, so keep this value a Slack incoming-webhook URL.
 Per-alert notifications remain visible only in the Coroot UI; this avoids sending
 every noisy alert to the shared webhook. Local / Docker Coroot stays notification-free.
-Kube-prometheus-stack keeps owning its alert rules until that remaining metrics
-and alerting migration is delivered separately.
+The profile also stages one hardened `cluster-heartbeat` CronJob for the cluster
+dead-man signal. It uses a separate optional `CLUSTER_HEARTBEAT_URL` secret so
+the existing Alertmanager Watchdog check keeps proving the Prometheus-to-Alertmanager
+pipeline. Never point both inputs at the same monitor. The CronJob runs at
+platform-critical priority, and its dedicated policy permits only `hc-ping.com:443`
+plus that hostname's exact DNS query. Bootstrap accepts only a canonical
+`https://hc-ping.com/<lowercase-uuid>` URL and compares check identities, so
+fragments, query strings, or trailing slashes cannot make both inputs target the
+same external check under different spellings.
+The substituted bearer URL lives in a Kubernetes Secret and reaches the container
+through a Secret-backed environment variable. A shell builtin feeds it to curl as
+stdin configuration, so neither the PodSpec nor curl's runtime argument vector
+contains the credential.
+The Coroot infrastructure overlay alone narrows the generated namespace policies
+around the CronJob's purpose-specific label, so default profiles retain their
+global selectors. The dependent apps layer stages the heartbeat only after that
+infrastructure reconciliation is ready, preventing an existing namespace-wide
+deny policy from blocking the new workload during an upgrade. The invalid URL
+fallback keeps local and unconfigured instances inert. Both default and Coroot
+profiles keep Watchdog unchanged on the distinct Alertmanager pipeline monitor,
+which preserves a dead-man signal until the apps layer starts the direct check.
+Kube-prometheus-stack keeps owning its remaining alert
+rules, including Flux reconciliation alerts, until that migration is delivered
+separately.
 
 Open the Coroot UI at `https://observability.<your-domain>`. Community Edition
 does not provide native OIDC, so this profile sends every UI request through the

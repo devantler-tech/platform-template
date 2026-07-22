@@ -6,6 +6,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
+# Renders a repository-relative profile independently of the caller's working directory.
 render() {
   local source_path="$1"
   local output_path="$2"
@@ -16,6 +17,7 @@ render() {
   fi
 }
 
+# Counts one exact kind/namespace/name identity in a multi-document render.
 resource_count() {
   local rendered_path="$1"
   local kind="$2"
@@ -30,6 +32,7 @@ resource_count() {
       '[.[] | select(type == "object" and .kind == $kind and (.metadata.namespace // "") == $namespace and .metadata.name == $name)] | length'
 }
 
+# Counts rendered resources owned by the OpenCost namespace.
 opencost_resource_count() {
   local rendered_path="$1"
 
@@ -37,6 +40,7 @@ opencost_resource_count() {
     jq -s '[.[] | select(type == "object" and ((.kind == "Namespace" and .metadata.name == "opencost") or .metadata.namespace == "opencost"))] | length'
 }
 
+# Counts rendered resources whose serialized content still references OpenCost.
 opencost_reference_count() {
   local rendered_path="$1"
 
@@ -44,6 +48,7 @@ opencost_reference_count() {
     jq -s '[.[] | select(type == "object" and (tojson | test("opencost"; "i")))] | length'
 }
 
+# Counts Grafana data sources that target the retired Loki service.
 loki_datasource_count() {
   local rendered_path="$1"
 
@@ -54,6 +59,7 @@ loki_datasource_count() {
       select(.type == "loki" or ((.url // "") | test("loki\\.monitoring\\.svc")))] | length'
 }
 
+# Counts rendered resources whose serialized content still references Loki.
 loki_service_reference_count() {
   local rendered_path="$1"
 
@@ -61,6 +67,7 @@ loki_service_reference_count() {
     jq -s '[.[] | select(type == "object" and (tojson | test("loki\\.monitoring\\.svc")))] | length'
 }
 
+# Fails closed when an exact rendered identity is missing or duplicated.
 assert_resource_count() {
   local rendered_path="$1"
   local kind="$2"
@@ -76,6 +83,7 @@ assert_resource_count() {
   fi
 }
 
+# Returns the source path for one uniquely rendered Flux Kustomization.
 flux_path() {
   local rendered_path="$1"
   local name="$2"
@@ -87,6 +95,7 @@ flux_path() {
        if length == 1 then .[0].spec.path else "invalid-count:\(length)" end'
 }
 
+# Fails when a Flux Kustomization does not point at the expected profile path.
 assert_flux_path() {
   local rendered_path="$1"
   local name="$2"
@@ -100,16 +109,438 @@ assert_flux_path() {
   fi
 }
 
+# Verifies the reconciliation edge and wait boundary that keep a later Flux
+# payload from starting before its prerequisite reports ready.
+assert_flux_dependency() {
+  local rendered_path="$1"
+  local name="$2"
+  local dependency="$3"
+  local matches
+
+  matches="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s --arg name "${name}" --arg dependency "${dependency}" '[.[] |
+        select(.kind == "Kustomization" and .metadata.namespace == "flux-system" and .metadata.name == $name) |
+        select(.spec.dependsOn == [{"name":$dependency}]) |
+        select(.spec.wait == true)] | length'
+  )"
+  if [[ "${matches}" != "1" ]]; then
+    echo "Flux Kustomization/${name} must wait for ${dependency} in ${rendered_path}" >&2
+    return 1
+  fi
+}
+
+# Verifies that the default profiles render no Coroot-owned resources.
 assert_default_off() {
   local rendered_path="$1"
 
   assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 0
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
+  assert_resource_count "${rendered_path}" CronJob observability cluster-heartbeat 0
+  assert_resource_count "${rendered_path}" Secret observability cluster-heartbeat 0
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 0
+  assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 0
   assert_resource_count "${rendered_path}" HTTPRoute observability coroot 0
 }
 
+# Verifies that the heartbeat workload reconciles only in the apps layer,
+# after infrastructure has replaced the observability namespace's generated
+# deny policies with the scoped selectors.
+assert_heartbeat_staged_after_policy_exclusion() {
+  local controllers_rendered_path="$1"
+  local apps_rendered_path="$2"
+
+  assert_resource_count "${controllers_rendered_path}" CronJob observability cluster-heartbeat 0
+  assert_resource_count "${controllers_rendered_path}" Secret observability cluster-heartbeat 0
+  assert_resource_count "${controllers_rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 0
+  assert_resource_count "${apps_rendered_path}" CronJob observability cluster-heartbeat 1
+  assert_resource_count "${apps_rendered_path}" Secret observability cluster-heartbeat 1
+  assert_resource_count "${apps_rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 1
+}
+
+# Executes the workflow's real heartbeat preflight with bounded fixture URLs.
+run_bootstrap_heartbeat_preflight() {
+  local bootstrap_workflow="$1"
+  local cluster_heartbeat_url="$2"
+  local alertmanager_heartbeat_url="$3"
+  local validation_script
+
+  validation_script="$(
+    sed -n '/# The dedicated Coroot heartbeat has an exact hc-ping.com egress/,/^[[:space:]]*fill_base()/p' "${bootstrap_workflow}" |
+      sed '$d'
+  )"
+  env \
+    CLUSTER_HEARTBEAT_URL="${cluster_heartbeat_url}" \
+    ALERTMANAGER_HEARTBEAT_URL="${alertmanager_heartbeat_url}" \
+    bash -c "set -euo pipefail
+${validation_script}" >/dev/null 2>&1
+}
+
+# Proves that bootstrap accepts two canonical checks while rejecting aliases,
+# alternate healthchecks.io operations, and noncanonical check identifiers.
+assert_bootstrap_heartbeat_identity_contract() {
+  local bootstrap_workflow="$1"
+  local cluster_url='https://hc-ping.com/11111111-1111-4111-8111-111111111111'
+  local alertmanager_url='https://hc-ping.com/22222222-2222-4222-8222-222222222222'
+  local cluster_alias
+  local alertmanager_alias
+  local -a cluster_aliases=(
+    "${cluster_url}#cluster"
+    "${cluster_url}?source=cluster"
+    "${cluster_url}/"
+    "${cluster_url}/start"
+    "${cluster_url}/fail"
+    "${cluster_url}/log"
+    "${cluster_url}/1"
+    'https://HC-PING.com/11111111-1111-4111-8111-111111111111'
+    'https://hc-ping.com:443/11111111-1111-4111-8111-111111111111'
+    'https://hc-ping.com/project-slug/check-slug'
+    'https://hc-ping.com/AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA'
+  )
+  local -a alertmanager_aliases=(
+    "${cluster_url}"
+    "${cluster_url}#alertmanager"
+    "${cluster_url}?source=alertmanager"
+    "${cluster_url}/"
+    "${cluster_url}/start"
+    "${cluster_url}/fail"
+    "${cluster_url}/log"
+    "${cluster_url}/1"
+    'https://HC-PING.com/11111111-1111-4111-8111-111111111111'
+    'https://hc-ping.com:443/11111111-1111-4111-8111-111111111111'
+    'https://user@hc-ping.com/11111111-1111-4111-8111-111111111111'
+    'https://hc-ping.com/project-slug/check-slug'
+  )
+
+  if ! run_bootstrap_heartbeat_preflight "${bootstrap_workflow}" "${cluster_url}" "${alertmanager_url}"; then
+    echo "bootstrap must accept two distinct canonical healthchecks.io checks" >&2
+    return 1
+  fi
+  if ! run_bootstrap_heartbeat_preflight "${bootstrap_workflow}" "" "${alertmanager_url}"; then
+    echo "bootstrap must keep an unset direct-cluster check valid" >&2
+    return 1
+  fi
+  for cluster_alias in "${cluster_aliases[@]}"; do
+    if run_bootstrap_heartbeat_preflight "${bootstrap_workflow}" "${cluster_alias}" "${alertmanager_url}"; then
+      echo "bootstrap must reject every noncanonical direct-cluster check URL" >&2
+      return 1
+    fi
+  done
+  for alertmanager_alias in "${alertmanager_aliases[@]}"; do
+    if run_bootstrap_heartbeat_preflight "${bootstrap_workflow}" "${cluster_url}" "${alertmanager_alias}"; then
+      echo "bootstrap must reject every alias of the direct-cluster check" >&2
+      return 1
+    fi
+  done
+}
+
+assert_bootstrap_heartbeat_identity_contract "${repo_root}/.github/workflows/bootstrap.yaml"
+
+# Validates the singleton workload, isolation selector, and exact egress contract
+# rendered by each explicit Coroot profile.
+assert_coroot_heartbeat_contract() {
+  local rendered_path="$1"
+  local controllers_rendered_path="$2"
+  local heartbeat_count
+  local cronjob_contract
+  local secret_contract
+  local heartbeat_egress_contract
+  local coroot_selector_contract
+  local heartbeat_selecting_policy_count
+
+  heartbeat_count="$(resource_count "${rendered_path}" CronJob observability cluster-heartbeat)"
+  cronjob_contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "CronJob" and .metadata.namespace == "observability" and .metadata.name == "cluster-heartbeat") |
+        select(.spec.schedule == "*/5 * * * *") |
+        select(.spec.concurrencyPolicy == "Forbid") |
+        select(.spec.startingDeadlineSeconds == 30) |
+        select(.spec.successfulJobsHistoryLimit == 1 and .spec.failedJobsHistoryLimit == 1) |
+        select(.spec.jobTemplate.spec.backoffLimit == 0 and .spec.jobTemplate.spec.activeDeadlineSeconds == 120) |
+        .spec.jobTemplate.spec.template as $template |
+        select($template.metadata.labels.app == "cluster-heartbeat") |
+        select($template.metadata.labels["platform-heartbeat"] == "true") |
+        $template.spec as $pod |
+        select($pod.restartPolicy == "Never" and $pod.automountServiceAccountToken == false) |
+        select($pod.priorityClassName == "platform-critical") |
+        select($pod.securityContext.runAsNonRoot == true and $pod.securityContext.runAsUser == 65532) |
+        select($pod.securityContext.seccompProfile.type == "RuntimeDefault") |
+        select($pod.containers | length == 1) |
+        $pod.containers[0] as $container |
+        select($container.name == "heartbeat") |
+        select($container.image == "docker.io/curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13") |
+        select($container.command == [
+          "/bin/sh",
+          "-c"
+        ]) |
+        select($container.args == [
+          "printf '\''url = \"%s\"\\n'\'' \"$HEARTBEAT_URL\" | curl --config - -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused || true"
+        ]) |
+        select($container.env == [{
+          "name":"HEARTBEAT_URL",
+          "valueFrom":{"secretKeyRef":{"name":"cluster-heartbeat","key":"url"}}
+        }]) |
+        select($container.securityContext.allowPrivilegeEscalation == false) |
+        select($container.securityContext.readOnlyRootFilesystem == true) |
+        select($container.securityContext.runAsNonRoot == true and $container.securityContext.runAsUser == 65532 and $container.securityContext.runAsGroup == 65532) |
+        select($container.securityContext.capabilities.drop == ["ALL"]) |
+        select($container.resources == {
+          "requests":{"cpu":"5m","memory":"16Mi"},
+          "limits":{"cpu":"50m","memory":"32Mi"}
+        })] | length'
+  )"
+  secret_contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "Secret" and .metadata.namespace == "observability" and .metadata.name == "cluster-heartbeat") |
+        select(.type == "Opaque") |
+        select(.stringData == {"url":"${cluster_heartbeat_url:=https://example.invalid/no-cluster-heartbeat-configured}"})] | length'
+  )"
+  heartbeat_egress_contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-cluster-heartbeat") |
+        select(.spec == {
+          "endpointSelector":{"matchLabels":{"platform-heartbeat":"true"}},
+          "enableDefaultDeny":{"ingress":true,"egress":true},
+          "ingressDeny":[{}],
+          "egress":[
+            {
+              "toFQDNs":[{"matchName":"hc-ping.com"}],
+              "toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]
+            },
+            {
+              "toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s-app":"kube-dns"}}],
+              "toPorts":[{
+                "ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}],
+                "rules":{"dns":[{"matchName":"hc-ping.com"}]}
+              }]
+            }
+          ]
+        })] | length'
+  )"
+  coroot_selector_contract="$(
+    yq eval-all -o=json '.' "${controllers_rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") |
+        select(.spec.endpointSelector.matchExpressions == [{"key":"platform-heartbeat","operator":"NotIn","values":["true"]}]) |
+        select(all(.spec.egress[]?.toFQDNs[]?; .matchName != "hc-ping.com"))] | length'
+  )"
+  heartbeat_selecting_policy_count="$(
+    yq eval-all -o=json '.' "${rendered_path}" "${controllers_rendered_path}" |
+      jq -s '
+        def selector_matches($labels):
+          (.spec.endpointSelector // {}) as $selector |
+          all(($selector.matchLabels // {} | to_entries[]); $labels[.key] == .value) and
+          all(($selector.matchExpressions // [])[];
+            .key as $key |
+            ($labels[$key] // null) as $value |
+            if .operator == "In" then
+              $value != null and ((.values // []) | index($value) != null)
+            elif .operator == "NotIn" then
+              $value == null or ((.values // []) | index($value) == null)
+            elif .operator == "Exists" then
+              $value != null
+            elif .operator == "DoesNotExist" then
+              $value == null
+            else
+              false
+            end);
+        {"app":"cluster-heartbeat","platform-heartbeat":"true"} as $heartbeat_labels |
+        [.[] |
+          select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability") |
+          select(selector_matches($heartbeat_labels))] | length'
+  )"
+
+  if [[ "${heartbeat_count}" != "1" || "${cronjob_contract}" != "1" || "${secret_contract}" != "1" ]]; then
+    echo "Coroot profile must render one hardened five-minute heartbeat with one Secret reference in ${rendered_path}" >&2
+    return 1
+  fi
+  if [[ "${heartbeat_egress_contract}" != "1" || "${coroot_selector_contract}" != "1" || "${heartbeat_selecting_policy_count}" != "1" ]]; then
+    echo "Coroot heartbeat must match only its one exact configured-host egress policy in ${rendered_path}" >&2
+    return 1
+  fi
+}
+
+# Validates the effective heartbeat after Flux post-build substitution.
+assert_coroot_heartbeat_substitution() {
+  local rendered_path="$1"
+  local substituted_path
+  local heartbeat_url="https://hc-ping.com/example-heartbeat"
+  local heartbeat_host
+  local heartbeat_token='$'
+  local rendered_line
+  local rendered_prefix
+  local rendered_suffix
+  local cronjob_matches
+  local secret_matches
+  local policy_matches
+
+  substituted_path="${tmp_dir}/$(basename "${rendered_path}" .yaml)-heartbeat-substituted.yaml"
+  heartbeat_token+='{cluster_heartbeat_url:=https://example.invalid/no-cluster-heartbeat-configured}'
+  heartbeat_host="${heartbeat_url#https://}"
+  heartbeat_host="${heartbeat_host%%/*}"
+  while IFS= read -r rendered_line || [[ -n "${rendered_line}" ]]; do
+    if [[ "${rendered_line}" == *"${heartbeat_token}"* ]]; then
+      rendered_prefix="${rendered_line%%"${heartbeat_token}"*}"
+      rendered_suffix="${rendered_line#*"${heartbeat_token}"}"
+      rendered_line="${rendered_prefix}${heartbeat_url}${rendered_suffix}"
+    fi
+    printf '%s\n' "${rendered_line}"
+  done <"${rendered_path}" >"${substituted_path}"
+
+  cronjob_matches="$(
+    yq eval-all -o=json '.' "${substituted_path}" |
+      jq -s --arg heartbeat_url "${heartbeat_url}" '[.[] |
+        select(.kind == "CronJob" and .metadata.namespace == "observability" and .metadata.name == "cluster-heartbeat") |
+        .spec.jobTemplate.spec.template.spec.containers[0] as $container |
+        select($container.command == ["/bin/sh", "-c"]) |
+        select($container.args == [
+          "printf '\''url = \"%s\"\\n'\'' \"$HEARTBEAT_URL\" | curl --config - -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused || true"
+        ]) |
+        select($container.env == [{
+          "name":"HEARTBEAT_URL",
+          "valueFrom":{"secretKeyRef":{"name":"cluster-heartbeat","key":"url"}}
+        }])] | length'
+  )"
+  secret_matches="$(
+    yq eval-all -o=json '.' "${substituted_path}" |
+      jq -s --arg heartbeat_url "${heartbeat_url}" '[.[] |
+        select(.kind == "Secret" and .metadata.namespace == "observability" and .metadata.name == "cluster-heartbeat") |
+        select(.stringData.url == $heartbeat_url)] | length'
+  )"
+  policy_matches="$(
+    yq eval-all -o=json '.' "${substituted_path}" |
+      jq -s --arg heartbeat_host "${heartbeat_host}" '[.[] |
+        select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-cluster-heartbeat") |
+        select(any(.spec.egress[]?.toFQDNs[]?; .matchName == $heartbeat_host)) |
+        select(any(.spec.egress[]?.toPorts[]?.rules.dns[]?; .matchName == $heartbeat_host))] | length'
+  )"
+
+  if [[ "${cronjob_matches}" != "1" || "${secret_matches}" != "1" || "${policy_matches}" != "1" ]]; then
+    echo "Flux-substituted heartbeat URL and exact policy host must agree in ${rendered_path}" >&2
+    return 1
+  fi
+}
+
+# Validates that the default profile still produces the Watchdog rule.
+assert_watchdog_enabled() {
+  local rendered_path="$1"
+  local matches
+
+  matches="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "HelmRelease" and .metadata.namespace == "monitoring" and .metadata.name == "kube-prometheus-stack") |
+        select(.spec.values.defaultRules.create == true) |
+        select((.spec.values.defaultRules.rules.general // true) == true) |
+        select((.spec.values.defaultRules.disabled.Watchdog // false) == false) |
+        select([.spec.values.alertmanager.config.receivers[]? |
+          select(.name == "heartbeat") |
+          select(.webhook_configs[0].url == "${alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}")] | length == 1)] | length'
+  )"
+  if [[ "${matches}" != "1" ]]; then
+    echo "kube-prometheus-stack must keep Watchdog on the distinct Alertmanager pipeline monitor in ${rendered_path}" >&2
+    return 1
+  fi
+}
+
+# Validates that only the observability namespace's generated policies defer
+# the dedicated heartbeat label to its narrower workload policy.
+assert_heartbeat_policy_exclusion() {
+  local rendered_path="$1"
+  local rule_name
+  local scoped_rule_name
+  local expected_spec
+  local matches
+
+  for rule_name in generate-default-deny generate-allow-dns; do
+    matches="$(
+      yq eval-all -o=json '.' "${rendered_path}" |
+        jq -s --arg rule_name "${rule_name}" '[.[] |
+          select(.kind == "ClusterPolicy" and .metadata.name == "add-default-deny") |
+          .spec.rules[] |
+          select(.name == $rule_name) |
+          select(.exclude.any[0].resources.names | index("observability")) |
+          select(.generate.data.spec.endpointSelector == {})] | length'
+    )"
+    if [[ "${matches}" != "1" ]]; then
+      echo "add-default-deny/${rule_name} must retain the global guardrail and exclude observability for its scoped replacement in ${rendered_path}" >&2
+      return 1
+    fi
+
+    scoped_rule_name="${rule_name}-observability"
+    if [[ "${rule_name}" == "generate-default-deny" ]]; then
+      expected_spec='{
+        "endpointSelector":{"matchExpressions":[{"key":"platform-heartbeat","operator":"NotIn","values":["true"]}]},
+        "enableDefaultDeny":{"ingress":true,"egress":true},
+        "ingressDeny":[{}],
+        "egressDeny":[{}]
+      }'
+    else
+      expected_spec='{
+        "endpointSelector":{"matchExpressions":[{"key":"platform-heartbeat","operator":"NotIn","values":["true"]}]},
+        "egress":[{
+          "toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s-app":"kube-dns"}}],
+          "toPorts":[{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}]}]
+        }]
+      }'
+    fi
+    matches="$(
+      yq eval-all -o=json '.' "${rendered_path}" |
+        jq -s --arg rule_name "${scoped_rule_name}" --argjson expected_spec "${expected_spec}" '[.[] |
+          select(.kind == "ClusterPolicy" and .metadata.name == "add-default-deny") |
+          .spec.rules[] |
+          select(.name == $rule_name) |
+          select(.match.any[0].resources.kinds == ["Namespace"]) |
+          select(.match.any[0].resources.names == ["observability"]) |
+          select(.generate.data.spec == $expected_spec)] | length'
+    )"
+    if [[ "${matches}" != "1" ]]; then
+      echo "add-default-deny/${scoped_rule_name} must retain its complete scoped policy body in ${rendered_path}" >&2
+      return 1
+    fi
+  done
+}
+
+# Verifies that default profiles retain the global deny and DNS selectors.
+assert_heartbeat_policy_exclusion_absent() {
+  local rendered_path="$1"
+  local rule_name
+  local matches
+
+  for rule_name in generate-default-deny generate-allow-dns; do
+    matches="$(
+      yq eval-all -o=json '.' "${rendered_path}" |
+        jq -s --arg rule_name "${rule_name}" '[.[] |
+          select(.kind == "ClusterPolicy" and .metadata.name == "add-default-deny") |
+          .spec.rules[] |
+          select(.name == $rule_name) |
+          select(((.exclude.any[0].resources.names // []) | index("observability")) == null) |
+          select(.generate.data.spec.endpointSelector == {})] | length'
+    )"
+    if [[ "${matches}" != "1" ]]; then
+      echo "default add-default-deny/${rule_name} must keep its global selector in ${rendered_path}" >&2
+      return 1
+    fi
+  done
+
+  matches="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "ClusterPolicy" and .metadata.name == "add-default-deny") |
+        .spec.rules[] |
+        select(.name == "generate-default-deny-observability" or .name == "generate-allow-dns-observability")] | length'
+  )"
+  if [[ "${matches}" != "0" ]]; then
+    echo "default add-default-deny must not contain Coroot heartbeat exceptions in ${rendered_path}" >&2
+    return 1
+  fi
+}
+
+# Verifies that a default controller profile retains the complete OpenCost surface.
 assert_opencost_present() {
   local rendered_path="$1"
 
@@ -120,6 +551,7 @@ assert_opencost_present() {
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy opencost allow-opencost 1
 }
 
+# Verifies that a rendered profile contains no OpenCost-owned resources.
 assert_opencost_resources_absent() {
   local rendered_path="$1"
   local actual
@@ -131,6 +563,7 @@ assert_opencost_resources_absent() {
   fi
 }
 
+# Verifies the exact number of rendered resources that reference OpenCost.
 assert_opencost_reference_count() {
   local rendered_path="$1"
   local expected="$2"
@@ -143,6 +576,7 @@ assert_opencost_reference_count() {
   fi
 }
 
+# Verifies that both OpenCost resources and serialized references are absent.
 assert_opencost_absent() {
   local rendered_path="$1"
   local actual
@@ -155,6 +589,7 @@ assert_opencost_absent() {
   fi
 }
 
+# Verifies that Coroot reuses the hardened auth proxy without weakening it.
 assert_auth_proxy_with_coroot() {
   local default_rendered_path="$1"
   local opt_in_rendered_path="$2"
@@ -188,6 +623,7 @@ assert_auth_proxy_with_coroot() {
   fi
 }
 
+# Verifies the Coroot controller profile's SSO and access-control contract.
 assert_coroot_sso_controller_contract() {
   local rendered_path="$1"
   local route_contract
@@ -260,6 +696,7 @@ assert_coroot_sso_controller_contract() {
   fi
 }
 
+# Verifies whether a rendered Coroot project grants the expected admin role.
 assert_coroot_admin_role() {
   local rendered_path="$1"
   local expected="$2"
@@ -284,6 +721,7 @@ assert_coroot_admin_role() {
   fi
 }
 
+# Counts policy rules that omit the required namespace exclusion.
 policy_rules_without_namespace_exclusion() {
   local rendered_path="$1"
   local policy_name="$2"
@@ -302,6 +740,7 @@ policy_rules_without_namespace_exclusion() {
        end'
 }
 
+# Counts policy rules that carry a namespace exclusion.
 policy_rules_with_namespace_exclusion() {
   local rendered_path="$1"
   local policy_name="$2"
@@ -320,6 +759,7 @@ policy_rules_with_namespace_exclusion() {
        end'
 }
 
+# Verifies that every rule in a policy excludes the selected namespace.
 assert_namespace_excluded_from_all_policy_rules() {
   local rendered_path="$1"
   local policy_name="$2"
@@ -333,6 +773,7 @@ assert_namespace_excluded_from_all_policy_rules() {
   fi
 }
 
+# Verifies that no rule in a policy excludes the selected namespace.
 assert_namespace_not_excluded_from_policy() {
   local rendered_path="$1"
   local policy_name="$2"
@@ -346,6 +787,7 @@ assert_namespace_not_excluded_from_policy() {
   fi
 }
 
+# Verifies the exact namespace match count in one security exception.
 assert_security_exception_namespace_count() {
   local rendered_path="$1"
   local exception_name="$2"
@@ -417,6 +859,10 @@ assert_flux_path "${prod_cluster_coroot}" bootstrap clusters/prod/bootstrap
 assert_flux_path "${prod_cluster_coroot}" infrastructure-controllers providers/hetzner/infrastructure-controllers-coroot
 assert_flux_path "${prod_cluster_coroot}" infrastructure providers/hetzner/infrastructure-coroot
 assert_flux_path "${prod_cluster_coroot}" apps providers/hetzner/apps-coroot
+for rendered_path in "${local_cluster_coroot}" "${prod_cluster_coroot}"; do
+  assert_flux_dependency "${rendered_path}" infrastructure infrastructure-controllers
+  assert_flux_dependency "${rendered_path}" apps infrastructure
+done
 
 # Cluster renders contain Flux pointers, so inspect the provider payloads those
 # pointers reconcile. This catches accidental activation in either layer.
@@ -429,8 +875,10 @@ render k8s/providers/hetzner/apps/ "${prod_apps_default}"
 for rendered_path in \
   "${local_controllers_default}" \
   "${local_infrastructure_default}" \
+  "${local_apps_default}" \
   "${prod_controllers_default}" \
-  "${prod_infrastructure_default}"; do
+  "${prod_infrastructure_default}" \
+  "${prod_apps_default}"; do
   assert_default_off "${rendered_path}"
 done
 
@@ -438,6 +886,7 @@ done
 # Only the explicit Coroot profiles retire it.
 for rendered_path in "${local_controllers_default}" "${prod_controllers_default}"; do
   assert_opencost_present "${rendered_path}"
+  assert_watchdog_enabled "${rendered_path}"
 done
 for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_default}"; do
   assert_opencost_resources_absent "${rendered_path}"
@@ -447,6 +896,7 @@ for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_de
   assert_security_exception_namespace_count "${rendered_path}" infrastructure-privileged observability 0
   assert_security_exception_namespace_count "${rendered_path}" controller-rbac observability 0
   assert_security_exception_namespace_count "${rendered_path}" service-account-tokens observability 0
+  assert_heartbeat_policy_exclusion_absent "${rendered_path}"
 done
 assert_opencost_reference_count "${local_apps_default}" 1
 assert_opencost_reference_count "${prod_apps_default}" 1
@@ -487,6 +937,9 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   fi
 done
 
+assert_heartbeat_staged_after_policy_exclusion "${docker_controllers}" "${docker_apps}"
+assert_heartbeat_staged_after_policy_exclusion "${hetzner_controllers}" "${hetzner_apps}"
+
 assert_auth_proxy_with_coroot "${local_controllers_default}" "${docker_controllers}"
 assert_auth_proxy_with_coroot "${prod_controllers_default}" "${hetzner_controllers}"
 
@@ -494,10 +947,20 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 1
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
+  assert_resource_count "${rendered_path}" HelmRelease monitoring kube-prometheus-stack 1
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 1
+  assert_resource_count "${rendered_path}" CronJob observability cluster-heartbeat 0
+  assert_resource_count "${rendered_path}" Secret observability cluster-heartbeat 0
+  assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 0
   assert_opencost_absent "${rendered_path}"
   assert_coroot_sso_controller_contract "${rendered_path}"
+  assert_watchdog_enabled "${rendered_path}"
 done
+
+assert_coroot_heartbeat_contract "${docker_apps}" "${docker_controllers}"
+assert_coroot_heartbeat_substitution "${docker_apps}"
+assert_coroot_heartbeat_contract "${hetzner_apps}" "${hetzner_controllers}"
+assert_coroot_heartbeat_substitution "${hetzner_apps}"
 
 for rendered_path in "${docker_infrastructure}" "${hetzner_infrastructure}"; do
   assert_namespace_excluded_from_all_policy_rules "${rendered_path}" add-security-context observability
@@ -507,6 +970,7 @@ for rendered_path in "${docker_infrastructure}" "${hetzner_infrastructure}"; do
   assert_security_exception_namespace_count "${rendered_path}" controller-rbac observability 1
   assert_security_exception_namespace_count "${rendered_path}" service-account-tokens observability 1
   assert_security_exception_namespace_count "${rendered_path}" health-probes observability 0
+  assert_heartbeat_policy_exclusion "${rendered_path}"
 done
 
 assert_resource_count "${docker_infrastructure}" HelmRelease observability coroot-operator 0
@@ -659,6 +1123,18 @@ for documented_boundary in \
   "This profile is transitional." \
   "removes OpenCost and its Headlamp" \
   "retires the legacy Loki and Alloy log path" \
+  "stages one hardened \`cluster-heartbeat\` CronJob" \
+  "uses a separate optional \`CLUSTER_HEARTBEAT_URL\` secret" \
+  "Never point both inputs at the same monitor" \
+  "permits only \`hc-ping.com:443\`" \
+  "Bootstrap accepts only a canonical" \
+  "compares check identities" \
+  "dependent apps layer stages the heartbeat only after" \
+  "Secret-backed environment variable" \
+  "stdin configuration" \
+  "platform-critical priority" \
+  "keep Watchdog unchanged" \
+  "preserves a dead-man signal" \
   "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
   "reuses the existing encrypted webhook" \
@@ -666,7 +1142,7 @@ for documented_boundary in \
   "permits only \`hooks.slack.com:443\`" \
   "Per-alert notifications remain visible only in the Coroot UI" \
   "Local / Docker Coroot stays notification-free" \
-  "Kube-prometheus-stack keeps owning its alert rules" \
+  "Kube-prometheus-stack keeps owning its remaining alert" \
   "https://observability.<your-domain>" \
   "Dex-backed oauth2-proxy" \
   "no direct Gateway route to the Coroot service" \
@@ -677,9 +1153,62 @@ for documented_boundary in \
   fi
 done
 
+if grep -R -n 'alertmanager_heartbeat_host' \
+  "${repo_root}/.github/workflows/bootstrap.yaml" \
+  "${repo_root}/docs" \
+  "${repo_root}/k8s"; then
+  echo "Coroot heartbeat must not add an instance-owned host variable" >&2
+  exit 1
+fi
+
+alerting_guide="${repo_root}/docs/dr/alerting.md"
+for documented_heartbeat_boundary in \
+  "Two independent dead-man checks" \
+  "never give them the same ping URL" \
+  "Watchdog stays enabled" \
+  "cluster_heartbeat_url" \
+  "The three secret inputs" \
+  "\`hc-ping.com:443\`" \
+  "Bootstrap compares" \
+  "canonical check identities" \
+  "dependent apps layer" \
+  "while Watchdog preserves" \
+  "curl as stdin configuration" \
+  "Flux reconciliation alerting still depends on kube-prometheus-stack"; do
+  if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
+    echo "alerting guide does not retain heartbeat boundary: ${documented_heartbeat_boundary}" >&2
+    exit 1
+  fi
+done
+
+bootstrap_workflow="${repo_root}/.github/workflows/bootstrap.yaml"
+for bootstrap_boundary in \
+  "CLUSTER_HEARTBEAT_URL: \${{ secrets.CLUSTER_HEARTBEAT_URL }}" \
+  "heartbeat_url_pattern='^https://hc-ping\\.com/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$'" \
+  "heartbeat_host_pattern='^https?://([^/?#]*@)?hc-ping\\.com([:/?#]|$)'" \
+  "alertmanager_heartbeat_url_lower=\"\$(printf '%s' \"\${ALERTMANAGER_HEARTBEAT_URL}\" | tr '[:upper:]' '[:lower:]')\"" \
+  'CLUSTER_HEARTBEAT_URL must be a canonical https://hc-ping.com/<lowercase-uuid> URL or be unset' \
+  'ALERTMANAGER_HEARTBEAT_URL must be canonical when it uses hc-ping.com' \
+  "cluster_heartbeat_check_id=\"\${BASH_REMATCH[1]}\"" \
+  "alertmanager_heartbeat_check_id=\"\${BASH_REMATCH[1]}\"" \
+  "[ \"\${cluster_heartbeat_check_id}\" = \"\${alertmanager_heartbeat_check_id}\" ]; then" \
+  'CLUSTER_HEARTBEAT_URL must use a different external check than ALERTMANAGER_HEARTBEAT_URL' \
+  '.stringData.cluster_heartbeat_url = strenv(CLUSTER_HEARTBEAT_URL)'; do
+  if ! grep -Fq "${bootstrap_boundary}" "${bootstrap_workflow}"; then
+    echo "bootstrap workflow does not retain cluster-heartbeat boundary: ${bootstrap_boundary}" >&2
+    exit 1
+  fi
+done
+
+if grep -Fq 'alertmanager_heartbeat_url' "${repo_root}/k8s/bases/apps/cluster-heartbeat/cron-job.yaml"; then
+  echo "Coroot CronJob must not share the Alertmanager pipeline monitor" >&2
+  exit 1
+fi
+
 if grep -R -E -n '(devantler|homelab|hooks\.slack\.com|hcloud|alertmanager_webhook_url)' \
   "${repo_root}/k8s/bases/infrastructure/controllers/coroot" \
   "${repo_root}/k8s/bases/infrastructure/coroot" \
+  "${repo_root}/k8s/bases/apps/cluster-heartbeat" \
   "${repo_root}/k8s/bases/infrastructure/audit-log-forwarder"; then
   echo "Coroot profile manifests contain an instance-specific value" >&2
   exit 1
