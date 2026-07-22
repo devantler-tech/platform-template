@@ -209,6 +209,7 @@ assert_bootstrap_heartbeat_identity_contract() {
     "${cluster_url}/1"
     'https://HC-PING.com/11111111-1111-4111-8111-111111111111'
     'https://hc-ping.com:443/11111111-1111-4111-8111-111111111111'
+    'https://user@hc-ping.com/11111111-1111-4111-8111-111111111111'
     'https://hc-ping.com/project-slug/check-slug'
   )
 
@@ -1182,6 +1183,7 @@ bootstrap_workflow="${repo_root}/.github/workflows/bootstrap.yaml"
 for bootstrap_boundary in \
   "CLUSTER_HEARTBEAT_URL: \${{ secrets.CLUSTER_HEARTBEAT_URL }}" \
   "heartbeat_url_pattern='^https://hc-ping\\.com/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$'" \
+  "heartbeat_host_pattern='^https?://([^/?#]*@)?hc-ping\\.com([:/?#]|$)'" \
   "alertmanager_heartbeat_url_lower=\"\$(printf '%s' \"\${ALERTMANAGER_HEARTBEAT_URL}\" | tr '[:upper:]' '[:lower:]')\"" \
   'CLUSTER_HEARTBEAT_URL must be a canonical https://hc-ping.com/<lowercase-uuid> URL or be unset' \
   'ALERTMANAGER_HEARTBEAT_URL must be canonical when it uses hc-ping.com' \

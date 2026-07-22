@@ -201,6 +201,7 @@ jobs:
           # than encrypting a silently dead monitor. Empty stays valid so default
           # profiles and operators who have not opted into Coroot remain inert.
           heartbeat_url_pattern='^https://hc-ping\.com/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$'
+          heartbeat_host_pattern='^https?://([^/?#]*@)?hc-ping\.com([:/?#]|$)'
           cluster_heartbeat_check_id=""
           alertmanager_heartbeat_check_id=""
           alertmanager_heartbeat_url_lower="$(printf '%s' "${ALERTMANAGER_HEARTBEAT_URL}" | tr '[:upper:]' '[:lower:]')"
@@ -211,7 +212,7 @@ jobs:
             fi
             cluster_heartbeat_check_id="${BASH_REMATCH[1]}"
           fi
-          if [[ "${alertmanager_heartbeat_url_lower}" == *://hc-ping.com* ]]; then
+          if [[ "${alertmanager_heartbeat_url_lower}" =~ ${heartbeat_host_pattern} ]]; then
             if [[ ! "${ALERTMANAGER_HEARTBEAT_URL}" =~ ${heartbeat_url_pattern} ]]; then
               echo "::error::ALERTMANAGER_HEARTBEAT_URL must be canonical when it uses hc-ping.com"
               exit 1
