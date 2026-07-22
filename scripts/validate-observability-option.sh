@@ -483,13 +483,16 @@ assert_flux_notification_contract() {
       jq -s '[.[] |
         select(.apiVersion == "notification.toolkit.fluxcd.io/v1beta3") |
         select(.kind == "Alert" and .metadata.namespace == "flux-system" and .metadata.name == "platform-dependency-wait") |
-        select(.spec == {
-          "providerRef":{"name":"slack"},
-          "eventSeverity":"info",
-          "eventSources":[{"kind":"Kustomization","name":"*"}],
-          "inclusionList":[".*dependency.*not ready.*"],
-          "eventMetadata":{"summary":"Flux dependency wait — production platform"}
-        })] | length'
+        select(.spec as $spec |
+          $spec == {
+            "providerRef":{"name":"slack"},
+            "eventSeverity":"info",
+            "eventSources":[{"kind":"Kustomization","name":"*"}],
+            "inclusionList":[".*Dependencies do not meet ready condition.*"],
+            "eventMetadata":{"summary":"Flux dependency wait — production platform"}
+          } and
+          ("Dependencies do not meet ready condition, retrying in 5s" | test($spec.inclusionList[0])) and
+          ("Reconciliation finished in 250ms, next run in 10m0s" | test($spec.inclusionList[0]) | not))] | length'
   )"
   secret_contract="$(
     yq eval-all -o=json '.' "${rendered_path}" |

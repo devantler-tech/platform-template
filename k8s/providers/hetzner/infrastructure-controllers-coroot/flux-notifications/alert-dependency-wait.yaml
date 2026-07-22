@@ -13,6 +13,6 @@ spec:
     - kind: Kustomization
       name: "*"
   inclusionList:
-    - ".*dependency.*not ready.*"
+    - ".*Dependencies do not meet ready condition.*"
   eventMetadata:
     summary: "Flux dependency wait — production platform"
