@@ -276,7 +276,7 @@ assert_coroot_heartbeat_contract() {
           "-c"
         ]) |
         select($container.args == [
-          "curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"$HEARTBEAT_URL\" || true"
+          "printf '\''url = \"%s\"\\n'\'' \"$HEARTBEAT_URL\" | curl --config - -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused || true"
         ]) |
         select($container.env == [{
           "name":"HEARTBEAT_URL",
@@ -398,7 +398,7 @@ assert_coroot_heartbeat_substitution() {
         .spec.jobTemplate.spec.template.spec.containers[0] as $container |
         select($container.command == ["/bin/sh", "-c"]) |
         select($container.args == [
-          "curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"$HEARTBEAT_URL\" || true"
+          "printf '\''url = \"%s\"\\n'\'' \"$HEARTBEAT_URL\" | curl --config - -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused || true"
         ]) |
         select($container.env == [{
           "name":"HEARTBEAT_URL",
@@ -1131,6 +1131,7 @@ for documented_boundary in \
   "compares check identities" \
   "dependent apps layer stages the heartbeat only after" \
   "Secret-backed environment variable" \
+  "stdin configuration" \
   "platform-critical priority" \
   "keep Watchdog unchanged" \
   "preserves a dead-man signal" \
@@ -1172,6 +1173,7 @@ for documented_heartbeat_boundary in \
   "canonical check identities" \
   "dependent apps layer" \
   "while Watchdog preserves" \
+  "curl as stdin configuration" \
   "Flux reconciliation alerting still depends on kube-prometheus-stack"; do
   if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
     echo "alerting guide does not retain heartbeat boundary: ${documented_heartbeat_boundary}" >&2

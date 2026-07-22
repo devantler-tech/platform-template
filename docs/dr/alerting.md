@@ -72,6 +72,10 @@ workload; default profiles keep their global selectors. The dependent apps layer
 stages the CronJob only after that exclusion is ready, while Watchdog preserves the
 original dead-man path until the apps reconciliation completes. An invalid fallback
 keeps an unconfigured CronJob quiet.
+
+The bearer URL reaches the CronJob through a Secret-backed environment variable.
+The shell feeds it to curl as stdin configuration, so the credential is absent
+from both the PodSpec and curl's runtime argument vector.
 Flux reconciliation alerting still depends on kube-prometheus-stack, so that stack
 remains transitional until a later slice replaces those rules before removing it.
 

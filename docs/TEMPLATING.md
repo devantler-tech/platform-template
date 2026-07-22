@@ -98,7 +98,9 @@ plus that hostname's exact DNS query. Bootstrap accepts only a canonical
 fragments, query strings, or trailing slashes cannot make both inputs target the
 same external check under different spellings.
 The substituted bearer URL lives in a Kubernetes Secret and reaches the container
-through a Secret-backed environment variable, not the PodSpec command or arguments.
+through a Secret-backed environment variable. A shell builtin feeds it to curl as
+stdin configuration, so neither the PodSpec nor curl's runtime argument vector
+contains the credential.
 The Coroot infrastructure overlay alone narrows the generated namespace policies
 around the CronJob's purpose-specific label, so default profiles retain their
 global selectors. The dependent apps layer stages the heartbeat only after that
