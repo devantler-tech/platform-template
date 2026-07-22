@@ -185,6 +185,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           ALERTMANAGER_WEBHOOK_URL: ${{ secrets.ALERTMANAGER_WEBHOOK_URL }}
           ALERTMANAGER_HEARTBEAT_URL: ${{ secrets.ALERTMANAGER_HEARTBEAT_URL }}
+          CLUSTER_HEARTBEAT_URL: ${{ secrets.CLUSTER_HEARTBEAT_URL }}
           GITHUB_APP_CLIENT_SECRET: ${{ secrets.GITHUB_APP_CLIENT_SECRET }}
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
         run: |
@@ -193,6 +194,18 @@ jobs:
           export DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
           export FLUX_WEB_CLIENT_SECRET="$(openssl rand -hex 32)"
           export OAUTH2_PROXY_COOKIE_SECRET="$(openssl rand -base64 32)"
+
+          # The dedicated Coroot heartbeat has an exact hc-ping.com egress
+          # policy. Reject a configured URL that the cluster cannot reach rather
+          # than encrypting a silently dead monitor. Empty stays valid so default
+          # profiles and operators who have not opted into Coroot remain inert.
+          case "${CLUSTER_HEARTBEAT_URL}" in
+            ""|https://hc-ping.com/*) ;;
+            *)
+              echo "::error::CLUSTER_HEARTBEAT_URL must use https://hc-ping.com/ or be unset"
+              exit 1
+              ;;
+          esac
 
           fill_base() { # variables-base-secret
             yq -i '
@@ -207,6 +220,7 @@ jobs:
           yq -i '
             .stringData.alertmanager_webhook_url = strenv(ALERTMANAGER_WEBHOOK_URL) |
             .stringData.alertmanager_heartbeat_url = strenv(ALERTMANAGER_HEARTBEAT_URL) |
+            .stringData.cluster_heartbeat_url = strenv(CLUSTER_HEARTBEAT_URL) |
             .stringData.dex_client_secret = strenv(DEX_CLIENT_SECRET) |
             .stringData.flux_web_client_secret = strenv(FLUX_WEB_CLIENT_SECRET) |
             .stringData.oauth2_proxy_cookie_secret = strenv(OAUTH2_PROXY_COOKIE_SECRET) |

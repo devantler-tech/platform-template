@@ -52,7 +52,7 @@ spec:
                   --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused
                   "$1" || true
                 - cluster-heartbeat
-                - "${alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}"
+                - "${cluster_heartbeat_url:=https://example.invalid/no-cluster-heartbeat-configured}"
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true

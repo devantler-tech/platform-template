@@ -155,7 +155,7 @@ assert_coroot_heartbeat_contract() {
         select($container.args == [
           "curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"$1\" || true",
           "cluster-heartbeat",
-          "${alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}"
+          "${cluster_heartbeat_url:=https://example.invalid/no-cluster-heartbeat-configured}"
         ]) |
         select($container.securityContext.allowPrivilegeEscalation == false) |
         select($container.securityContext.readOnlyRootFilesystem == true) |
@@ -228,7 +228,7 @@ assert_coroot_heartbeat_substitution() {
   local policy_matches
 
   substituted_path="${tmp_dir}/$(basename "${rendered_path}" .yaml)-heartbeat-substituted.yaml"
-  heartbeat_token+='{alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}'
+  heartbeat_token+='{cluster_heartbeat_url:=https://example.invalid/no-cluster-heartbeat-configured}'
   heartbeat_host="${heartbeat_url#https://}"
   heartbeat_host="${heartbeat_host%%/*}"
   while IFS= read -r rendered_line || [[ -n "${rendered_line}" ]]; do
@@ -277,30 +277,13 @@ assert_watchdog_enabled() {
         select(.kind == "HelmRelease" and .metadata.namespace == "monitoring" and .metadata.name == "kube-prometheus-stack") |
         select(.spec.values.defaultRules.create == true) |
         select((.spec.values.defaultRules.rules.general // true) == true) |
-        select((.spec.values.defaultRules.disabled.Watchdog // false) == false)] | length'
+        select((.spec.values.defaultRules.disabled.Watchdog // false) == false) |
+        select([.spec.values.alertmanager.config.receivers[]? |
+          select(.name == "heartbeat") |
+          select(.webhook_configs[0].url == "${alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}")] | length == 1)] | length'
   )"
   if [[ "${matches}" != "1" ]]; then
-    echo "kube-prometheus-stack must render its enabled general/Watchdog rule in ${rendered_path}" >&2
-    return 1
-  fi
-}
-
-# Validates that a Coroot profile assigns the external heartbeat exclusively to
-# the dedicated CronJob instead of letting Watchdog reset the same monitor.
-assert_watchdog_disabled() {
-  local rendered_path="$1"
-  local matches
-
-  matches="$(
-    yq eval-all -o=json '.' "${rendered_path}" |
-      jq -s '[.[] |
-        select(.kind == "HelmRelease" and .metadata.namespace == "monitoring" and .metadata.name == "kube-prometheus-stack") |
-        select(.spec.values.defaultRules.create == true) |
-        select((.spec.values.defaultRules.rules.general // true) == true) |
-        select(.spec.values.defaultRules.disabled.Watchdog == true)] | length'
-  )"
-  if [[ "${matches}" != "1" ]]; then
-    echo "Coroot profile must disable Watchdog while cluster-heartbeat owns the external monitor in ${rendered_path}" >&2
+    echo "kube-prometheus-stack must keep Watchdog on the distinct Alertmanager pipeline monitor in ${rendered_path}" >&2
     return 1
   fi
 }
@@ -791,7 +774,7 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_coroot_sso_controller_contract "${rendered_path}"
   assert_coroot_heartbeat_contract "${rendered_path}"
   assert_coroot_heartbeat_substitution "${rendered_path}"
-  assert_watchdog_disabled "${rendered_path}"
+  assert_watchdog_enabled "${rendered_path}"
 done
 
 for rendered_path in "${docker_infrastructure}" "${hetzner_infrastructure}"; do
@@ -956,13 +939,13 @@ for documented_boundary in \
   "removes OpenCost and its Headlamp" \
   "retires the legacy Loki and Alloy log path" \
   "stages one hardened \`cluster-heartbeat\` CronJob" \
-  "reuses the existing encrypted heartbeat URL" \
+  "uses a separate optional \`CLUSTER_HEARTBEAT_URL\` secret" \
+  "Never point both inputs at the same monitor" \
   "permits only \`hc-ping.com:443\`" \
-  "runs at platform-critical priority" \
-  "The CronJob exclusively owns" \
-  "disables Watchdog" \
-  "Default profiles keep Watchdog unchanged" \
-  "does not add a new secret" \
+  "bootstrap rejects any other configured host" \
+  "platform-critical priority" \
+  "keep Watchdog unchanged" \
+  "preserves a dead-man signal" \
   "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
   "reuses the existing encrypted webhook" \
@@ -991,17 +974,36 @@ fi
 
 alerting_guide="${repo_root}/docs/dr/alerting.md"
 for documented_heartbeat_boundary in \
-  "The default profile keeps the \`Watchdog\` alert" \
-  "The Coroot profile gives the existing URL exclusively" \
+  "Two independent dead-man checks" \
+  "never give them the same ping URL" \
+  "Watchdog stays enabled" \
+  "cluster_heartbeat_url" \
   "only \`hc-ping.com:443\`" \
-  "disables Watchdog" \
-  "Watchdog path stays unchanged" \
+  "bootstrap rejects another configured host" \
+  "Keeping Watchdog active also preserves" \
   "Flux reconciliation alerting still depends on kube-prometheus-stack"; do
   if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
     echo "alerting guide does not retain heartbeat boundary: ${documented_heartbeat_boundary}" >&2
     exit 1
   fi
 done
+
+bootstrap_workflow="${repo_root}/.github/workflows/bootstrap.yaml"
+for bootstrap_boundary in \
+  "CLUSTER_HEARTBEAT_URL: \${{ secrets.CLUSTER_HEARTBEAT_URL }}" \
+  '""|https://hc-ping.com/*) ;;' \
+  'CLUSTER_HEARTBEAT_URL must use https://hc-ping.com/ or be unset' \
+  '.stringData.cluster_heartbeat_url = strenv(CLUSTER_HEARTBEAT_URL)'; do
+  if ! grep -Fq "${bootstrap_boundary}" "${bootstrap_workflow}"; then
+    echo "bootstrap workflow does not retain cluster-heartbeat boundary: ${bootstrap_boundary}" >&2
+    exit 1
+  fi
+done
+
+if grep -Fq 'alertmanager_heartbeat_url' "${repo_root}/k8s/bases/infrastructure/controllers/coroot/cron-job.yaml"; then
+  echo "Coroot CronJob must not share the Alertmanager pipeline monitor" >&2
+  exit 1
+fi
 
 if grep -R -E -n '(devantler|homelab|hooks\.slack\.com|hcloud|alertmanager_webhook_url)' \
   "${repo_root}/k8s/bases/infrastructure/controllers/coroot" \

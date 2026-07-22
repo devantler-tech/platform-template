@@ -89,16 +89,18 @@ policy permits only `hooks.slack.com:443`, so keep this value a Slack incoming-w
 Per-alert notifications remain visible only in the Coroot UI; this avoids sending
 every noisy alert to the shared webhook. Local / Docker Coroot stays notification-free.
 The profile also stages one hardened `cluster-heartbeat` CronJob for the cluster
-dead-man signal. It reuses the existing encrypted heartbeat URL and does not add a new secret.
-It runs at platform-critical priority, and its dedicated policy permits only `hc-ping.com:443`
-plus that hostname's exact DNS query. The Coroot infrastructure
+dead-man signal. It uses a separate optional `CLUSTER_HEARTBEAT_URL` secret so
+the existing Alertmanager Watchdog check keeps proving the Prometheus-to-Alertmanager
+pipeline. Never point both inputs at the same monitor. The CronJob runs at
+platform-critical priority, and its dedicated policy permits only `hc-ping.com:443`
+plus that hostname's exact DNS query; bootstrap rejects any other configured host.
+The Coroot infrastructure
 overlay alone narrows the generated namespace policies around the CronJob's
 purpose-specific label, so default profiles retain their global selectors. The
-invalid URL fallback keeps local and unconfigured instances inert. During this
-staging slice the Coroot profile disables Watchdog. The CronJob exclusively owns
-the external heartbeat. Two independent senders must not reset the same monitor:
-the CronJob would otherwise hide a Prometheus-to-Alertmanager outage by continuing
-to ping while that alerting path was down. Default profiles keep Watchdog unchanged.
+invalid URL fallback keeps local and unconfigured instances inert. Both default
+and Coroot profiles keep Watchdog unchanged on the distinct Alertmanager pipeline
+monitor. This also preserves a dead-man signal if the later Coroot infrastructure
+layer has not yet established the CronJob's generated-policy isolation.
 Kube-prometheus-stack keeps owning its remaining alert
 rules, including Flux reconciliation alerts, until that migration is delivered
 separately.

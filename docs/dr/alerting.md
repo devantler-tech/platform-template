@@ -6,9 +6,9 @@ shipper) and **OpenCost** (cost), running per cluster. Self-hosted, no
 SaaS metrics tier. The stack is production-hardened along four axes:
 
 1. **Alerts go to Slack** via Alertmanager's native `slack_configs`.
-2. **A dead-man's-switch** (the always-firing `Watchdog` alert) is pushed
-   to an external heartbeat monitor — the one failure mode in-cluster
-   alerting can never cover (the whole cluster being down).
+2. **Two independent dead-man checks** separate the Prometheus → Alertmanager
+   pipeline from direct cluster liveness, so one sender cannot hide the other
+   path's failure.
 3. **State is persistent** — Prometheus, Alertmanager and Loki use Hetzner
    Cloud block volumes in prod, and Velero ships the `monitoring`
    namespace to R2 daily (24 h RPO).
@@ -57,28 +57,34 @@ tight cadence (`repeat_interval: 50s`). If the cluster — or the Prometheus →
 Alertmanager pipeline — dies, the monitor stops receiving pings and notifies
 Slack out-of-band.
 
-The Coroot profile gives the existing URL exclusively to the dedicated
-`cluster-heartbeat` CronJob, which pings every five minutes independently of
-Coroot. That profile disables Watchdog: if both senders reset the same monitor,
-the CronJob can keep it green while the Prometheus-to-Alertmanager pipeline is
-down. The CronJob's network policy allows only `hc-ping.com:443` plus that
-hostname's exact DNS query. The Coroot overlay alone narrows the namespace deny
-and DNS policies around this purpose-labelled workload; default profiles keep
-their global selectors. Their Watchdog path stays unchanged. The invalid URL
-fallback keeps local and unconfigured instances quiet.
+The Coroot profile adds a dedicated `cluster-heartbeat` CronJob, which pings a
+**second external check** every five minutes independently of Coroot. It never
+reuses `alertmanager_heartbeat_url`: doing so would let the CronJob keep that
+monitor green while the Prometheus-to-Alertmanager pipeline was down.
+Watchdog stays enabled on its existing check in both default and Coroot profiles.
+The CronJob's separate `cluster_heartbeat_url` accepts only `https://hc-ping.com/...`;
+its network policy allows only `hc-ping.com:443` plus that hostname's exact DNS
+query, and bootstrap rejects another configured host. The Coroot overlay alone
+narrows the namespace deny and DNS policies around this purpose-labelled workload;
+default profiles keep their global selectors. Keeping Watchdog active also preserves
+the original dead-man path if the later infrastructure reconciliation has not yet
+established that isolation. An invalid fallback keeps an unconfigured CronJob quiet.
 Flux reconciliation alerting still depends on kube-prometheus-stack, so that stack
 remains transitional until a later slice replaces those rules before removing it.
 
 Recommended monitor: [healthchecks.io](https://healthchecks.io) (free,
-open-source, native Slack integration). Create a check with a ~5 min
-period and ~10 min grace, connect it to Slack, and put its ping URL in
-`alertmanager_heartbeat_url` (below). A self-hosted alternative is a
+open-source, native Slack integration). Keep two distinct checks: the existing
+tight-cadence Watchdog URL in `alertmanager_heartbeat_url`, and a ~5 min period /
+~10 min grace direct-cluster check in `cluster_heartbeat_url`. Connect both to
+Slack, but never give them the same ping URL. A self-hosted alternative for the
+Alertmanager check is supported; the CronJob deliberately accepts only
+`hc-ping.com` because its egress policy is fail closed. Another alternative is a
 scheduled GitHub Actions workflow that probes the public Gateway and posts
 to Slack — fully under your control, no third-party monitor.
 
-The heartbeat URL is injected by Flux substitution
-(`${alertmanager_heartbeat_url}`); unset, it defaults to an invalid URL,
-so local/CI simply never heartbeat — harmless.
+Both URLs are injected by Flux substitution. An unset `cluster_heartbeat_url`
+defaults to an invalid URL, so local/CI and Coroot profiles without the optional
+second check stay inert while Watchdog continues unchanged.
 
 ## Off-cluster metric/log backup
 
@@ -141,8 +147,12 @@ which is a Flux `substituteFrom` source.
 sops --set '["stringData"]["alertmanager_webhook_url"] "https://hooks.slack.com/services/XXX/YYY/ZZZ"' \
   k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml
 
-# 2. External heartbeat-monitor ping URL (e.g. healthchecks.io).
+# 2. Prometheus → Alertmanager pipeline check (healthchecks.io or similar).
 sops --set '["stringData"]["alertmanager_heartbeat_url"] "https://hc-ping.com/<uuid>"' \
+  k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml
+
+# 3. Separate direct-cluster check for the Coroot profile (hc-ping.com only).
+sops --set '["stringData"]["cluster_heartbeat_url"] "https://hc-ping.com/<different-uuid>"' \
   k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml
 ```
 
@@ -151,10 +161,10 @@ Slack side: create an incoming webhook for your alerts channel (e.g.
 webhook posts to the channel it was created for. healthchecks.io side: create
 the check, connect its Slack integration, copy the ping URL.
 
-| Env   | `alertmanager_webhook_url`        | `alertmanager_heartbeat_url`       |
-| ----- | --------------------------------- | ---------------------------------- |
-| local | invalid URL (alerts stay local)   | unset → invalid (no heartbeat)     |
-| prod  | Slack alerts-channel webhook      | healthchecks.io ping URL           |
+| Env   | `alertmanager_webhook_url`      | `alertmanager_heartbeat_url`       | `cluster_heartbeat_url`                 |
+| ----- | ------------------------------- | ---------------------------------- | --------------------------------------- |
+| local | invalid URL (alerts stay local) | unset → invalid                    | unset → invalid                         |
+| prod  | Slack alerts-channel webhook    | pipeline-monitor ping URL          | distinct Coroot cluster-monitor ping URL |
 
 ## On-call: silence and inspect
 
