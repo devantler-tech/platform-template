@@ -62,13 +62,16 @@ The Coroot profile adds a dedicated `cluster-heartbeat` CronJob, which pings a
 reuses `alertmanager_heartbeat_url`: doing so would let the CronJob keep that
 monitor green while the Prometheus-to-Alertmanager pipeline was down.
 Watchdog stays enabled on its existing check in both default and Coroot profiles.
-The CronJob's separate `cluster_heartbeat_url` accepts only `https://hc-ping.com/...`;
-its network policy allows only `hc-ping.com:443` plus that hostname's exact DNS
-query, and bootstrap rejects another configured host. The Coroot overlay alone
-narrows the namespace deny and DNS policies around this purpose-labelled workload;
-default profiles keep their global selectors. Keeping Watchdog active also preserves
-the original dead-man path if the later infrastructure reconciliation has not yet
-established that isolation. An invalid fallback keeps an unconfigured CronJob quiet.
+The CronJob's separate `cluster_heartbeat_url` accepts only a canonical
+`https://hc-ping.com/<lowercase-uuid>` URL; its network policy allows only
+`hc-ping.com:443` plus that hostname's exact DNS query. Bootstrap compares
+canonical check identities, so URL fragments, query strings, and trailing slashes
+cannot disguise reuse of the Alertmanager check. The Coroot infrastructure overlay
+alone narrows the namespace deny and DNS policies around this purpose-labelled
+workload; default profiles keep their global selectors. The dependent apps layer
+stages the CronJob only after that exclusion is ready, while Watchdog preserves the
+original dead-man path until the apps reconciliation completes. An invalid fallback
+keeps an unconfigured CronJob quiet.
 Flux reconciliation alerting still depends on kube-prometheus-stack, so that stack
 remains transitional until a later slice replaces those rules before removing it.
 

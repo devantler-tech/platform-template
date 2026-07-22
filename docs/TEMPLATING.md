@@ -93,16 +93,20 @@ dead-man signal. It uses a separate optional `CLUSTER_HEARTBEAT_URL` secret so
 the existing Alertmanager Watchdog check keeps proving the Prometheus-to-Alertmanager
 pipeline. Never point both inputs at the same monitor. The CronJob runs at
 platform-critical priority, and its dedicated policy permits only `hc-ping.com:443`
-plus that hostname's exact DNS query; bootstrap rejects any other configured host.
+plus that hostname's exact DNS query. Bootstrap accepts only a canonical
+`https://hc-ping.com/<lowercase-uuid>` URL and compares check identities, so
+fragments, query strings, or trailing slashes cannot make both inputs target the
+same external check under different spellings.
 The substituted bearer URL lives in a Kubernetes Secret and reaches the container
 through a Secret-backed environment variable, not the PodSpec command or arguments.
-The Coroot infrastructure
-overlay alone narrows the generated namespace policies around the CronJob's
-purpose-specific label, so default profiles retain their global selectors. The
-invalid URL fallback keeps local and unconfigured instances inert. Both default
-and Coroot profiles keep Watchdog unchanged on the distinct Alertmanager pipeline
-monitor. This also preserves a dead-man signal if the later Coroot infrastructure
-layer has not yet established the CronJob's generated-policy isolation.
+The Coroot infrastructure overlay alone narrows the generated namespace policies
+around the CronJob's purpose-specific label, so default profiles retain their
+global selectors. The dependent apps layer stages the heartbeat only after that
+infrastructure reconciliation is ready, preventing an existing namespace-wide
+deny policy from blocking the new workload during an upgrade. The invalid URL
+fallback keeps local and unconfigured instances inert. Both default and Coroot
+profiles keep Watchdog unchanged on the distinct Alertmanager pipeline monitor,
+which preserves a dead-man signal until the apps layer starts the direct check.
 Kube-prometheus-stack keeps owning its remaining alert
 rules, including Flux reconciliation alerts, until that migration is delivered
 separately.

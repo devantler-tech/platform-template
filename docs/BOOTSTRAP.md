@@ -112,7 +112,7 @@ Set these in your **new instance repository** under *Settings → Secrets and va
 | `R2_SECRET_ACCESS_KEY` | R2 (S3) secret access key for backups | Same place as the access key ID. |
 | `ALERTMANAGER_WEBHOOK_URL` | Incoming webhook for alert notifications (e.g. Slack) | Your chat platform’s incoming-webhook setup. |
 | `ALERTMANAGER_HEARTBEAT_URL` | Ping URL that proves the Prometheus → Alertmanager pipeline is alive | healthchecks.io (or similar) check ping URL. |
-| `CLUSTER_HEARTBEAT_URL` | Optional Coroot-profile cluster-liveness ping URL | A **separate** `https://hc-ping.com/...` check; never reuse the Alertmanager check. |
+| `CLUSTER_HEARTBEAT_URL` | Optional Coroot-profile cluster-liveness ping URL | A **separate**, canonical `https://hc-ping.com/<lowercase-uuid>` URL; never reuse the Alertmanager check under another URL spelling. |
 | `GITHUB_APP_CLIENT_SECRET` | **Client secret** of the *cluster SSO* GitHub App (Dex’s GitHub connector) | The SSO App’s settings page (generate a client secret). |
 | `APP_PRIVATE_KEY` | Private key (`.pem`) of the **bootstrap** GitHub App | Generated when you created the bootstrap App. |
 
