@@ -95,11 +95,13 @@ plus that hostname's exact DNS query. The Coroot infrastructure
 overlay alone narrows the generated namespace policies around the CronJob's
 purpose-specific label, so default profiles retain their global selectors. The
 invalid URL fallback keeps local and unconfigured instances inert. During this
-staging slice the CronJob runs alongside Watchdog: kube-prometheus-stack keeps the
-existing dead-man path so already-synced custom-provider heartbeats cannot be lost
-before a later, independently validated cutover. Kube-prometheus-stack keeps owning its alert rules,
-including Flux reconciliation alerts, until that
-remaining migration is delivered separately.
+staging slice the Coroot profile disables Watchdog. The CronJob exclusively owns
+the external heartbeat. Two independent senders must not reset the same monitor:
+the CronJob would otherwise hide a Prometheus-to-Alertmanager outage by continuing
+to ping while that alerting path was down. Default profiles keep Watchdog unchanged.
+Kube-prometheus-stack keeps owning its remaining alert
+rules, including Flux reconciliation alerts, until that migration is delivered
+separately.
 
 Open the Coroot UI at `https://observability.<your-domain>`. Community Edition
 does not provide native OIDC, so this profile sends every UI request through the

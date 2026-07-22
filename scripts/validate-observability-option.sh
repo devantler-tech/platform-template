@@ -266,8 +266,8 @@ assert_coroot_heartbeat_substitution() {
   fi
 }
 
-# Validates that kube-prometheus-stack still produces the Watchdog rule.
-assert_watchdog_rendered() {
+# Validates that the default profile still produces the Watchdog rule.
+assert_watchdog_enabled() {
   local rendered_path="$1"
   local matches
 
@@ -281,6 +281,26 @@ assert_watchdog_rendered() {
   )"
   if [[ "${matches}" != "1" ]]; then
     echo "kube-prometheus-stack must render its enabled general/Watchdog rule in ${rendered_path}" >&2
+    return 1
+  fi
+}
+
+# Validates that a Coroot profile assigns the external heartbeat exclusively to
+# the dedicated CronJob instead of letting Watchdog reset the same monitor.
+assert_watchdog_disabled() {
+  local rendered_path="$1"
+  local matches
+
+  matches="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "HelmRelease" and .metadata.namespace == "monitoring" and .metadata.name == "kube-prometheus-stack") |
+        select(.spec.values.defaultRules.create == true) |
+        select((.spec.values.defaultRules.rules.general // true) == true) |
+        select(.spec.values.defaultRules.disabled.Watchdog == true)] | length'
+  )"
+  if [[ "${matches}" != "1" ]]; then
+    echo "Coroot profile must disable Watchdog while cluster-heartbeat owns the external monitor in ${rendered_path}" >&2
     return 1
   fi
 }
@@ -706,7 +726,7 @@ done
 # Only the explicit Coroot profiles retire it.
 for rendered_path in "${local_controllers_default}" "${prod_controllers_default}"; do
   assert_opencost_present "${rendered_path}"
-  assert_watchdog_rendered "${rendered_path}"
+  assert_watchdog_enabled "${rendered_path}"
 done
 for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_default}"; do
   assert_opencost_resources_absent "${rendered_path}"
@@ -771,7 +791,7 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_coroot_sso_controller_contract "${rendered_path}"
   assert_coroot_heartbeat_contract "${rendered_path}"
   assert_coroot_heartbeat_substitution "${rendered_path}"
-  assert_watchdog_rendered "${rendered_path}"
+  assert_watchdog_disabled "${rendered_path}"
 done
 
 for rendered_path in "${docker_infrastructure}" "${hetzner_infrastructure}"; do
@@ -939,8 +959,9 @@ for documented_boundary in \
   "reuses the existing encrypted heartbeat URL" \
   "permits only \`hc-ping.com:443\`" \
   "runs at platform-critical priority" \
-  "runs alongside Watchdog" \
-  "custom-provider heartbeats" \
+  "The CronJob exclusively owns" \
+  "disables Watchdog" \
+  "Default profiles keep Watchdog unchanged" \
   "does not add a new secret" \
   "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
@@ -949,7 +970,7 @@ for documented_boundary in \
   "permits only \`hooks.slack.com:443\`" \
   "Per-alert notifications remain visible only in the Coroot UI" \
   "Local / Docker Coroot stays notification-free" \
-  "Kube-prometheus-stack keeps owning its alert rules" \
+  "Kube-prometheus-stack keeps owning its remaining alert" \
   "https://observability.<your-domain>" \
   "Dex-backed oauth2-proxy" \
   "no direct Gateway route to the Coroot service" \
@@ -971,10 +992,10 @@ fi
 alerting_guide="${repo_root}/docs/dr/alerting.md"
 for documented_heartbeat_boundary in \
   "The default profile keeps the \`Watchdog\` alert" \
-  "The Coroot profile uses the dedicated \`cluster-heartbeat\` CronJob" \
+  "The Coroot profile gives the existing URL exclusively" \
   "only \`hc-ping.com:443\`" \
-  "keeps Watchdog" \
-  "custom-provider heartbeats" \
+  "disables Watchdog" \
+  "Watchdog path stays unchanged" \
   "Flux reconciliation alerting still depends on kube-prometheus-stack"; do
   if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
     echo "alerting guide does not retain heartbeat boundary: ${documented_heartbeat_boundary}" >&2

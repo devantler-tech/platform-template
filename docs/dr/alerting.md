@@ -57,14 +57,15 @@ tight cadence (`repeat_interval: 50s`). If the cluster — or the Prometheus →
 Alertmanager pipeline — dies, the monitor stops receiving pings and notifies
 Slack out-of-band.
 
-The Coroot profile uses the dedicated `cluster-heartbeat` CronJob alongside that
-path. It pings the same existing URL every five minutes, independently of Coroot,
-and its network policy allows only `hc-ping.com:443` plus that hostname's exact
-DNS query. The Coroot overlay alone narrows the namespace deny and DNS policies
-around this purpose-labelled workload; default profiles keep their global
-selectors. The invalid URL fallback keeps local and unconfigured instances quiet.
-Coroot keeps Watchdog during this staging slice so custom-provider heartbeats remain
-protected before a later, independently validated cutover.
+The Coroot profile gives the existing URL exclusively to the dedicated
+`cluster-heartbeat` CronJob, which pings every five minutes independently of
+Coroot. That profile disables Watchdog: if both senders reset the same monitor,
+the CronJob can keep it green while the Prometheus-to-Alertmanager pipeline is
+down. The CronJob's network policy allows only `hc-ping.com:443` plus that
+hostname's exact DNS query. The Coroot overlay alone narrows the namespace deny
+and DNS policies around this purpose-labelled workload; default profiles keep
+their global selectors. Their Watchdog path stays unchanged. The invalid URL
+fallback keeps local and unconfigured instances quiet.
 Flux reconciliation alerting still depends on kube-prometheus-stack, so that stack
 remains transitional until a later slice replaces those rules before removing it.
 
