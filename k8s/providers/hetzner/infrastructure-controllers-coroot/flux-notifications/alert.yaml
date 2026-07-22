@@ -1,7 +1,6 @@
 # Coroot sees workload health, but it cannot observe failed Flux builds,
-# applies, dependencies, or readiness waits. Every top-level platform layer is
-# a wait-gated Kustomization, so error events cover that complete failure class
-# without introducing another polling workload.
+# applies, or health checks. Error events cover those failure classes without
+# introducing another polling workload.
 apiVersion: notification.toolkit.fluxcd.io/v1beta3
 kind: Alert
 metadata:
@@ -14,4 +13,5 @@ spec:
   eventSources:
     - kind: Kustomization
       name: "*"
-  summary: "Flux reconciliation error — production platform"
+  eventMetadata:
+    summary: "Flux reconciliation error — production platform"

@@ -139,6 +139,7 @@ assert_default_off() {
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
   assert_resource_count "${rendered_path}" Provider flux-system slack 0
   assert_resource_count "${rendered_path}" Alert flux-system platform-reconciliation 0
+  assert_resource_count "${rendered_path}" Alert flux-system platform-dependency-wait 0
   assert_resource_count "${rendered_path}" Secret flux-system slack-webhook 0
   assert_resource_count "${rendered_path}" CronJob observability cluster-heartbeat 0
   assert_resource_count "${rendered_path}" Secret observability cluster-heartbeat 0
@@ -454,7 +455,8 @@ assert_watchdog_enabled() {
 assert_flux_notification_contract() {
   local rendered_path="$1"
   local provider_contract
-  local alert_contract
+  local error_alert_contract
+  local dependency_alert_contract
   local secret_contract
 
   provider_contract="$(
@@ -464,7 +466,7 @@ assert_flux_notification_contract() {
         select(.kind == "Provider" and .metadata.namespace == "flux-system" and .metadata.name == "slack") |
         select(.spec == {"type":"slack","secretRef":{"name":"slack-webhook"}})] | length'
   )"
-  alert_contract="$(
+  error_alert_contract="$(
     yq eval-all -o=json '.' "${rendered_path}" |
       jq -s '[.[] |
         select(.apiVersion == "notification.toolkit.fluxcd.io/v1beta3") |
@@ -473,7 +475,20 @@ assert_flux_notification_contract() {
           "providerRef":{"name":"slack"},
           "eventSeverity":"error",
           "eventSources":[{"kind":"Kustomization","name":"*"}],
-          "summary":"Flux reconciliation error — production platform"
+          "eventMetadata":{"summary":"Flux reconciliation error — production platform"}
+        })] | length'
+  )"
+  dependency_alert_contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.apiVersion == "notification.toolkit.fluxcd.io/v1beta3") |
+        select(.kind == "Alert" and .metadata.namespace == "flux-system" and .metadata.name == "platform-dependency-wait") |
+        select(.spec == {
+          "providerRef":{"name":"slack"},
+          "eventSeverity":"info",
+          "eventSources":[{"kind":"Kustomization","name":"*"}],
+          "inclusionList":[".*dependency.*not ready.*"],
+          "eventMetadata":{"summary":"Flux dependency wait — production platform"}
         })] | length'
   )"
   secret_contract="$(
@@ -485,8 +500,39 @@ assert_flux_notification_contract() {
         select(.stringData == {"address":"${alertmanager_webhook_url:=https://example.invalid/no-slack-configured}"})] | length'
   )"
 
-  if [[ "${provider_contract}" != "1" || "${alert_contract}" != "1" || "${secret_contract}" != "1" ]]; then
-    echo "production Coroot must render one exact Flux Kustomization error path through the existing Slack webhook" >&2
+  if [[ "${provider_contract}" != "1" || "${error_alert_contract}" != "1" || "${dependency_alert_contract}" != "1" || "${secret_contract}" != "1" ]]; then
+    echo "production Coroot controllers must render exact Flux error and dependency-wait paths through the existing Slack webhook" >&2
+    return 1
+  fi
+}
+
+# Ensures the production Coroot profile does not send Kustomization failures
+# through both Flux notification-controller and the legacy Prometheus rule.
+assert_legacy_flux_alert_deduplicated() {
+  local rendered_path="$1"
+  local matches
+
+  matches="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.apiVersion == "monitoring.coreos.com/v1") |
+        select(.kind == "PrometheusRule" and .metadata.namespace == "monitoring" and .metadata.name == "platform-critical") |
+        .spec.groups[] |
+        select(.name == "flux") |
+        select(.rules == [{
+          "alert":"FluxHelmReleaseNotReady",
+          "expr":"gotk_reconcile_condition{type=\"Ready\",status=\"False\",kind=\"HelmRelease\"} == 1\n",
+          "for":"15m",
+          "labels":{"severity":"critical"},
+          "annotations":{
+            "summary":"Flux HelmRelease {{ $labels.namespace }}/{{ $labels.name }} not Ready",
+            "description":"kubectl describe HelmRelease -n {{ $labels.namespace }} {{ $labels.name }}"
+          }
+        }])] | length'
+  )"
+
+  if [[ "${matches}" != "1" ]]; then
+    echo "production Coroot must retain only HelmRelease coverage in the legacy Flux Prometheus rule" >&2
     return 1
   fi
 }
@@ -981,6 +1027,12 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   fi
 done
 
+assert_resource_count "${docker_controllers}" Provider flux-system slack 0
+assert_resource_count "${docker_controllers}" Alert flux-system platform-reconciliation 0
+assert_resource_count "${docker_controllers}" Alert flux-system platform-dependency-wait 0
+assert_resource_count "${docker_controllers}" Secret flux-system slack-webhook 0
+assert_flux_notification_contract "${hetzner_controllers}"
+
 assert_heartbeat_staged_after_policy_exclusion "${docker_controllers}" "${docker_apps}"
 assert_heartbeat_staged_after_policy_exclusion "${hetzner_controllers}" "${hetzner_apps}"
 
@@ -1022,13 +1074,18 @@ assert_resource_count "${docker_infrastructure}" Coroot observability coroot 1
 assert_resource_count "${docker_infrastructure}" HelmRelease observability audit-log-forwarder 0
 assert_resource_count "${docker_infrastructure}" Provider flux-system slack 0
 assert_resource_count "${docker_infrastructure}" Alert flux-system platform-reconciliation 0
+assert_resource_count "${docker_infrastructure}" Alert flux-system platform-dependency-wait 0
 assert_resource_count "${docker_infrastructure}" Secret flux-system slack-webhook 0
 assert_opencost_absent "${docker_infrastructure}"
 
 assert_resource_count "${hetzner_infrastructure}" HelmRelease observability coroot-operator 0
 assert_resource_count "${hetzner_infrastructure}" Coroot observability coroot 1
 assert_resource_count "${hetzner_infrastructure}" HelmRelease observability audit-log-forwarder 1
-assert_flux_notification_contract "${hetzner_infrastructure}"
+assert_resource_count "${hetzner_infrastructure}" Provider flux-system slack 0
+assert_resource_count "${hetzner_infrastructure}" Alert flux-system platform-reconciliation 0
+assert_resource_count "${hetzner_infrastructure}" Alert flux-system platform-dependency-wait 0
+assert_resource_count "${hetzner_infrastructure}" Secret flux-system slack-webhook 0
+assert_legacy_flux_alert_deduplicated "${hetzner_infrastructure}"
 assert_opencost_absent "${hetzner_infrastructure}"
 assert_opencost_absent "${docker_apps}"
 assert_opencost_absent "${hetzner_apps}"
@@ -1193,6 +1250,9 @@ for documented_boundary in \
   "Per-alert notifications remain visible only in the Coroot UI" \
   "Local / Docker Coroot stays notification-free" \
   "Flux notification-controller now owns reconciliation errors" \
+  "controller layer applies both Flux alerts" \
+  "narrow info-severity path for dependency waits" \
+  "legacy Prometheus rule keeps only HelmRelease coverage" \
   "Kube-prometheus-stack keeps owning its remaining metric-backed" \
   "https://observability.<your-domain>" \
   "Dex-backed oauth2-proxy" \
@@ -1226,8 +1286,11 @@ for documented_heartbeat_boundary in \
   "while Watchdog preserves" \
   "curl as stdin configuration" \
   "Flux notification-controller now owns reconciliation errors" \
-  "watches every \`Kustomization\`" \
-  "Coroot profiles render no Slack" \
+  "Two event-driven \`Alert\` objects" \
+  "The controller layer applies them before it waits" \
+  "\`FluxHelmReleaseNotReady\`" \
+  "watch every \`Kustomization\`" \
+  "default and local Coroot profiles render no Slack" \
   "\`kube-prometheus-stack\` remains transitional for Watchdog"; do
   if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
     echo "alerting guide does not retain heartbeat boundary: ${documented_heartbeat_boundary}" >&2

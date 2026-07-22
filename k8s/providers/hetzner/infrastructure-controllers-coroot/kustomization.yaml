@@ -4,6 +4,9 @@ kind: Kustomization
 resources:
   - ../infrastructure/controllers/
   - ../../../bases/infrastructure/controllers/coroot/
+  # Apply the production notification path before this Flux layer waits for
+  # every controller, so it can report a controller readiness failure itself.
+  - flux-notifications/
 components:
   - ../../../components/observability-coroot/remove-controllers-loki-alloy/
   - ../../../components/observability-coroot/remove-controller-opencost/

@@ -5,3 +5,4 @@ resources:
   - secret.yaml
   - provider.yaml
   - alert.yaml
+  - alert-dependency-wait.yaml

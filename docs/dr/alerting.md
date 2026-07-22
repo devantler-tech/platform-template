@@ -77,10 +77,14 @@ The bearer URL reaches the CronJob through a Secret-backed environment variable.
 The shell feeds it to curl as stdin configuration, so the credential is absent
 from both the PodSpec and curl's runtime argument vector.
 Flux notification-controller now owns reconciliation errors in the production
-Coroot profile. One event-driven `Alert` watches every `Kustomization` at `error`
-severity, covering failed builds, applies, dependencies, and readiness waits. It
-posts through the existing `alertmanager_webhook_url`; the default and local
-Coroot profiles render no Slack `Provider`, `Alert`, or webhook `Secret`.
+Coroot profile. Two event-driven `Alert` objects watch every `Kustomization`:
+one forwards `error` events for failed builds, applies, and health checks; the
+other forwards only `info` dependency waits whose prerequisite is not ready.
+The controller layer applies them before it waits for every controller, so the
+notification path already exists if that layer cannot become ready. Both post
+through the existing `alertmanager_webhook_url`.
+The default and local Coroot profiles render no Slack `Provider`, `Alert`, or
+webhook `Secret`.
 `kube-prometheus-stack` remains transitional for Watchdog and the remaining
 metric-backed alert rules until those paths are migrated separately.
 
@@ -147,9 +151,12 @@ Two sources:
 
 (plus the chart's workload/storage/self-monitoring alerts.)
 
-In the production Coroot profile, the event-driven Flux notification above
-replaces `FluxKustomizationNotReady`; the other table entries still come from
-`kube-prometheus-stack` while the profile is transitional.
+In the production Coroot profile, the event-driven Flux notifications replace
+the Kustomization half of `FluxKustomizationNotReady`. Its profile patch renames
+the remaining metric rule to `FluxHelmReleaseNotReady` and narrows it to
+HelmRelease readiness, so the two paths do not send the same failure twice. The
+other table entries still come from `kube-prometheus-stack` while the profile is
+transitional.
 
 ## Per-environment setup (manual SOPS steps)
 

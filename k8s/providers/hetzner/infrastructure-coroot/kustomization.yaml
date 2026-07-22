@@ -5,10 +5,6 @@ resources:
   - ../infrastructure/
   - ../../../bases/infrastructure/coroot/
   - ../../../bases/infrastructure/audit-log-forwarder/
-  # Coroot observes workloads but cannot see a failed Flux build, apply, or
-  # readiness wait. Restore that production safety net through Flux's existing
-  # notification controller and the same webhook input Coroot already uses.
-  - flux-notifications/
 components:
   - ../../../components/observability-coroot/allow-host-access/
   - ../../../components/observability-coroot/isolate-heartbeat/
@@ -21,3 +17,10 @@ patches:
       kind: Coroot
       name: coroot
       namespace: observability
+  - path: patches/retain-helm-release-alert.yaml
+    target:
+      group: monitoring.coreos.com
+      version: v1
+      kind: PrometheusRule
+      name: platform-critical
+      namespace: monitoring
