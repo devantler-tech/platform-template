@@ -17,7 +17,7 @@ resources:
   # Shared catalog policies (immutable pins; update manually after review)
   - https://raw.githubusercontent.com/devantler-tech/kyverno-policies/ffff4f152f3efd940cc78d56d257925592409ce1/policies/best-practices/disallow-latest-tag.yaml
   - https://raw.githubusercontent.com/devantler-tech/kyverno-policies/fd5fe3e8bb837ed6fecbd70dfdc59df1b94672c1/policies/flux/helm-release-remediation-retries.yaml
-  # Upstream kyverno/policies (synced via reusable-workflows, patched below)
+  # Upstream kyverno/policies samples (vendored locally; patched below)
   - samples/best-practices/add-ns-quota/add-ns-quota.yaml
   - samples/other/create-pod-antiaffinity/create-pod-antiaffinity.yaml
   - samples/other/spread-pods-across-topology/spread-pods-across-topology.yaml
