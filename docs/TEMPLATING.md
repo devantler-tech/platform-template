@@ -94,6 +94,8 @@ the existing Alertmanager Watchdog check keeps proving the Prometheus-to-Alertma
 pipeline. Never point both inputs at the same monitor. The CronJob runs at
 platform-critical priority, and its dedicated policy permits only `hc-ping.com:443`
 plus that hostname's exact DNS query; bootstrap rejects any other configured host.
+The substituted bearer URL lives in a Kubernetes Secret and reaches the container
+through a Secret-backed environment variable, not the PodSpec command or arguments.
 The Coroot infrastructure
 overlay alone narrows the generated namespace policies around the CronJob's
 purpose-specific label, so default profiles retain their global selectors. The

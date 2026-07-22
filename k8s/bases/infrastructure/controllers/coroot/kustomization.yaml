@@ -8,6 +8,7 @@ resources:
   - cilium-network-policy-heartbeat.yaml
   - cilium-network-policy.yaml
   - cron-job.yaml
+  - secret-heartbeat.yaml
   - helm-repository.yaml
   - helm-release.yaml
   - http-route.yaml

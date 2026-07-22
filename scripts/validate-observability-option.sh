@@ -111,6 +111,7 @@ assert_default_off() {
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
   assert_resource_count "${rendered_path}" CronJob observability cluster-heartbeat 0
+  assert_resource_count "${rendered_path}" Secret observability cluster-heartbeat 0
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 0
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 0
   assert_resource_count "${rendered_path}" HTTPRoute observability coroot 0
@@ -122,9 +123,10 @@ assert_coroot_heartbeat_contract() {
   local rendered_path="$1"
   local heartbeat_count
   local cronjob_contract
+  local secret_contract
   local heartbeat_egress_contract
   local coroot_selector_contract
-  local broad_external_egress
+  local heartbeat_selecting_policy_count
 
   heartbeat_count="$(resource_count "${rendered_path}" CronJob observability cluster-heartbeat)"
   cronjob_contract="$(
@@ -153,10 +155,12 @@ assert_coroot_heartbeat_contract() {
           "-c"
         ]) |
         select($container.args == [
-          "curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"$1\" || true",
-          "cluster-heartbeat",
-          "${cluster_heartbeat_url:=https://example.invalid/no-cluster-heartbeat-configured}"
+          "curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"$HEARTBEAT_URL\" || true"
         ]) |
+        select($container.env == [{
+          "name":"HEARTBEAT_URL",
+          "valueFrom":{"secretKeyRef":{"name":"cluster-heartbeat","key":"url"}}
+        }]) |
         select($container.securityContext.allowPrivilegeEscalation == false) |
         select($container.securityContext.readOnlyRootFilesystem == true) |
         select($container.securityContext.runAsNonRoot == true and $container.securityContext.runAsUser == 65532 and $container.securityContext.runAsGroup == 65532) |
@@ -165,6 +169,13 @@ assert_coroot_heartbeat_contract() {
           "requests":{"cpu":"5m","memory":"16Mi"},
           "limits":{"cpu":"50m","memory":"32Mi"}
         })] | length'
+  )"
+  secret_contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '[.[] |
+        select(.kind == "Secret" and .metadata.namespace == "observability" and .metadata.name == "cluster-heartbeat") |
+        select(.type == "Opaque") |
+        select(.stringData == {"url":"${cluster_heartbeat_url:=https://example.invalid/no-cluster-heartbeat-configured}"})] | length'
   )"
   heartbeat_egress_contract="$(
     yq eval-all -o=json '.' "${rendered_path}" |
@@ -196,20 +207,38 @@ assert_coroot_heartbeat_contract() {
         select(.spec.endpointSelector.matchExpressions == [{"key":"platform-heartbeat","operator":"NotIn","values":["true"]}]) |
         select(all(.spec.egress[]?.toFQDNs[]?; .matchName != "hc-ping.com"))] | length'
   )"
-  broad_external_egress="$(
+  heartbeat_selecting_policy_count="$(
     yq eval-all -o=json '.' "${rendered_path}" |
-      jq -s '[.[] |
-        select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability" and .metadata.name == "allow-coroot") |
-        .spec.egress[]? |
-        select(any(.toEntities[]?; . == "world" or . == "all") or any(.toFQDNs[]?; has("matchPattern")))] | length'
+      jq -s '
+        def selector_matches($labels):
+          (.spec.endpointSelector // {}) as $selector |
+          all(($selector.matchLabels // {} | to_entries[]); $labels[.key] == .value) and
+          all(($selector.matchExpressions // [])[];
+            .key as $key |
+            ($labels[$key] // null) as $value |
+            if .operator == "In" then
+              $value != null and ((.values // []) | index($value) != null)
+            elif .operator == "NotIn" then
+              $value == null or ((.values // []) | index($value) == null)
+            elif .operator == "Exists" then
+              $value != null
+            elif .operator == "DoesNotExist" then
+              $value == null
+            else
+              false
+            end);
+        {"app":"cluster-heartbeat","platform-heartbeat":"true"} as $heartbeat_labels |
+        [.[] |
+          select(.kind == "CiliumNetworkPolicy" and .metadata.namespace == "observability") |
+          select(selector_matches($heartbeat_labels))] | length'
   )"
 
-  if [[ "${heartbeat_count}" != "1" || "${cronjob_contract}" != "1" ]]; then
-    echo "Coroot profile must render one hardened five-minute cluster heartbeat in ${rendered_path}" >&2
+  if [[ "${heartbeat_count}" != "1" || "${cronjob_contract}" != "1" || "${secret_contract}" != "1" ]]; then
+    echo "Coroot profile must render one hardened five-minute heartbeat with one Secret reference in ${rendered_path}" >&2
     return 1
   fi
-  if [[ "${heartbeat_egress_contract}" != "1" || "${coroot_selector_contract}" != "1" || "${broad_external_egress}" != "0" ]]; then
-    echo "Coroot heartbeat must be excluded from broad policies and have one exact configured-host egress path without wildcard or world access in ${rendered_path}" >&2
+  if [[ "${heartbeat_egress_contract}" != "1" || "${coroot_selector_contract}" != "1" || "${heartbeat_selecting_policy_count}" != "1" ]]; then
+    echo "Coroot heartbeat must match only its one exact configured-host egress policy in ${rendered_path}" >&2
     return 1
   fi
 }
@@ -225,6 +254,7 @@ assert_coroot_heartbeat_substitution() {
   local rendered_prefix
   local rendered_suffix
   local cronjob_matches
+  local secret_matches
   local policy_matches
 
   substituted_path="${tmp_dir}/$(basename "${rendered_path}" .yaml)-heartbeat-substituted.yaml"
@@ -247,10 +277,18 @@ assert_coroot_heartbeat_substitution() {
         .spec.jobTemplate.spec.template.spec.containers[0] as $container |
         select($container.command == ["/bin/sh", "-c"]) |
         select($container.args == [
-          "curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"$1\" || true",
-          "cluster-heartbeat",
-          $heartbeat_url
-        ])] | length'
+          "curl -sf --max-time 10 --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \"$HEARTBEAT_URL\" || true"
+        ]) |
+        select($container.env == [{
+          "name":"HEARTBEAT_URL",
+          "valueFrom":{"secretKeyRef":{"name":"cluster-heartbeat","key":"url"}}
+        }])] | length'
+  )"
+  secret_matches="$(
+    yq eval-all -o=json '.' "${substituted_path}" |
+      jq -s --arg heartbeat_url "${heartbeat_url}" '[.[] |
+        select(.kind == "Secret" and .metadata.namespace == "observability" and .metadata.name == "cluster-heartbeat") |
+        select(.stringData.url == $heartbeat_url)] | length'
   )"
   policy_matches="$(
     yq eval-all -o=json '.' "${substituted_path}" |
@@ -260,7 +298,7 @@ assert_coroot_heartbeat_substitution() {
         select(any(.spec.egress[]?.toPorts[]?.rules.dns[]?; .matchName == $heartbeat_host))] | length'
   )"
 
-  if [[ "${cronjob_matches}" != "1" || "${policy_matches}" != "1" ]]; then
+  if [[ "${cronjob_matches}" != "1" || "${secret_matches}" != "1" || "${policy_matches}" != "1" ]]; then
     echo "Flux-substituted heartbeat URL and exact policy host must agree in ${rendered_path}" >&2
     return 1
   fi
@@ -768,6 +806,7 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
   assert_resource_count "${rendered_path}" HelmRelease monitoring kube-prometheus-stack 1
+  assert_resource_count "${rendered_path}" Secret observability cluster-heartbeat 1
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 1
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 1
   assert_opencost_absent "${rendered_path}"
@@ -943,6 +982,7 @@ for documented_boundary in \
   "Never point both inputs at the same monitor" \
   "permits only \`hc-ping.com:443\`" \
   "bootstrap rejects any other configured host" \
+  "Secret-backed environment variable" \
   "platform-critical priority" \
   "keep Watchdog unchanged" \
   "preserves a dead-man signal" \
@@ -978,6 +1018,7 @@ for documented_heartbeat_boundary in \
   "never give them the same ping URL" \
   "Watchdog stays enabled" \
   "cluster_heartbeat_url" \
+  "The three secret inputs" \
   "only \`hc-ping.com:443\`" \
   "bootstrap rejects another configured host" \
   "Keeping Watchdog active also preserves" \
@@ -993,6 +1034,8 @@ for bootstrap_boundary in \
   "CLUSTER_HEARTBEAT_URL: \${{ secrets.CLUSTER_HEARTBEAT_URL }}" \
   '""|https://hc-ping.com/*) ;;' \
   'CLUSTER_HEARTBEAT_URL must use https://hc-ping.com/ or be unset' \
+  "[ \"\${CLUSTER_HEARTBEAT_URL}\" = \"\${ALERTMANAGER_HEARTBEAT_URL}\" ]; then" \
+  'CLUSTER_HEARTBEAT_URL must use a different external check than ALERTMANAGER_HEARTBEAT_URL' \
   '.stringData.cluster_heartbeat_url = strenv(CLUSTER_HEARTBEAT_URL)'; do
   if ! grep -Fq "${bootstrap_boundary}" "${bootstrap_workflow}"; then
     echo "bootstrap workflow does not retain cluster-heartbeat boundary: ${bootstrap_boundary}" >&2

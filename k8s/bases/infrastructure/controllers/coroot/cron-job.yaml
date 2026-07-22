@@ -7,9 +7,10 @@
 # coupling this signal to Coroot would turn a component outage into a false
 # cluster-down alarm.
 #
-# The URL comes from the existing Flux substitution input. Local and
-# unconfigured clusters use the invalid fallback, and `|| true` keeps the Job
-# from flapping when no external monitor is configured. The signal is the
+# The URL comes from the dedicated Flux substitution input through a Secret
+# reference, so the bearer token does not appear in the PodSpec or argv. Local
+# and unconfigured clusters use the invalid fallback, and `|| true` keeps the
+# Job from flapping when no external monitor is configured. The signal is the
 # absence of pings at the external monitor, not the Job exit code.
 apiVersion: batch/v1
 kind: CronJob
@@ -50,9 +51,13 @@ spec:
                 - >-
                   curl -sf --max-time 10
                   --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused
-                  "$1" || true
-                - cluster-heartbeat
-                - "${cluster_heartbeat_url:=https://example.invalid/no-cluster-heartbeat-configured}"
+                  "$HEARTBEAT_URL" || true
+              env:
+                - name: HEARTBEAT_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: cluster-heartbeat
+                      key: url
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true

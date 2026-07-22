@@ -206,6 +206,11 @@ jobs:
               exit 1
               ;;
           esac
+          if [ -n "${CLUSTER_HEARTBEAT_URL}" ] && \
+             [ "${CLUSTER_HEARTBEAT_URL}" = "${ALERTMANAGER_HEARTBEAT_URL}" ]; then
+            echo "::error::CLUSTER_HEARTBEAT_URL must use a different external check than ALERTMANAGER_HEARTBEAT_URL"
+            exit 1
+          fi
 
           fill_base() { # variables-base-secret
             yq -i '
