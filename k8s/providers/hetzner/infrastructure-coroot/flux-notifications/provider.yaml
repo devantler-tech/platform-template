@@ -1,0 +1,11 @@
+# notification-controller is already enabled by the shared Flux installation;
+# this provider only connects it to the production Coroot webhook input.
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Provider
+metadata:
+  name: slack
+  namespace: flux-system
+spec:
+  type: slack
+  secretRef:
+    name: slack-webhook

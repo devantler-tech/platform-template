@@ -1185,12 +1185,15 @@ for documented_boundary in \
   "preserves a dead-man signal" \
   "keeps kube-prometheus-stack" \
   "Cost allocation is therefore unavailable" \
+  "reuses the same \`alertmanager_webhook_url\`" \
+  "production Coroot profile to report failed" \
   "reuses the existing encrypted webhook" \
   "incident and resolution notifications" \
   "permits only \`hooks.slack.com:443\`" \
   "Per-alert notifications remain visible only in the Coroot UI" \
   "Local / Docker Coroot stays notification-free" \
-  "Kube-prometheus-stack keeps owning its remaining alert" \
+  "Flux notification-controller now owns reconciliation errors" \
+  "Kube-prometheus-stack keeps owning its remaining metric-backed" \
   "https://observability.<your-domain>" \
   "Dex-backed oauth2-proxy" \
   "no direct Gateway route to the Coroot service" \
@@ -1222,7 +1225,10 @@ for documented_heartbeat_boundary in \
   "dependent apps layer" \
   "while Watchdog preserves" \
   "curl as stdin configuration" \
-  "Flux reconciliation alerting still depends on kube-prometheus-stack"; do
+  "Flux notification-controller now owns reconciliation errors" \
+  "watches every \`Kustomization\`" \
+  "Coroot profiles render no Slack" \
+  "\`kube-prometheus-stack\` remains transitional for Watchdog"; do
   if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
     echo "alerting guide does not retain heartbeat boundary: ${documented_heartbeat_boundary}" >&2
     exit 1

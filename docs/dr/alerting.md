@@ -76,8 +76,13 @@ keeps an unconfigured CronJob quiet.
 The bearer URL reaches the CronJob through a Secret-backed environment variable.
 The shell feeds it to curl as stdin configuration, so the credential is absent
 from both the PodSpec and curl's runtime argument vector.
-Flux reconciliation alerting still depends on kube-prometheus-stack, so that stack
-remains transitional until a later slice replaces those rules before removing it.
+Flux notification-controller now owns reconciliation errors in the production
+Coroot profile. One event-driven `Alert` watches every `Kustomization` at `error`
+severity, covering failed builds, applies, dependencies, and readiness waits. It
+posts through the existing `alertmanager_webhook_url`; the default and local
+Coroot profiles render no Slack `Provider`, `Alert`, or webhook `Secret`.
+`kube-prometheus-stack` remains transitional for Watchdog and the remaining
+metric-backed alert rules until those paths are migrated separately.
 
 Recommended monitor: [healthchecks.io](https://healthchecks.io) (free,
 open-source, native Slack integration). Keep two distinct checks: the existing
@@ -142,6 +147,10 @@ Two sources:
 
 (plus the chart's workload/storage/self-monitoring alerts.)
 
+In the production Coroot profile, the event-driven Flux notification above
+replaces `FluxKustomizationNotReady`; the other table entries still come from
+`kube-prometheus-stack` while the profile is transitional.
+
 ## Per-environment setup (manual SOPS steps)
 
 The three secret inputs — `alertmanager_webhook_url`,
@@ -151,7 +160,7 @@ be set by hand. All three are read from the `Secret` `variables-cluster`, which
 is a Flux `substituteFrom` source.
 
 ```bash
-# 1. Slack incoming webhook for alert notifications.
+# 1. Slack incoming webhook for Alertmanager, Coroot, and Flux notifications.
 sops --set '["stringData"]["alertmanager_webhook_url"] "https://hooks.slack.com/services/XXX/YYY/ZZZ"' \
   k8s/clusters/prod/bootstrap/variables-cluster-secret.enc.yaml
 
