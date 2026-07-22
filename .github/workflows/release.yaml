@@ -13,7 +13,7 @@ jobs:
     # own cluster repo. The template repo itself ships no release (it is the sync
     # source; downstream instances release independently).
     if: github.repository != 'devantler-tech/platform-template'
-    uses: devantler-tech/actions/.github/workflows/create-release.yaml@5de934e076503c897d43d85680406f8d1d9356b7 # v10.0.0
+    uses: devantler-tech/actions/.github/workflows/create-release.yaml@9705e47d7df0b556ec06786247297c0e5020e56d # v10.2.1
     permissions:
       contents: write # create releases and tags
       issues: write # comment on related issues
