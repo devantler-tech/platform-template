@@ -1,0 +1,17 @@
+# Coroot sees workload health, but it cannot observe failed Flux builds,
+# applies, or health checks. Error events cover those failure classes without
+# introducing another polling workload.
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: platform-reconciliation
+  namespace: flux-system
+spec:
+  providerRef:
+    name: slack
+  eventSeverity: error
+  eventSources:
+    - kind: Kustomization
+      name: "*"
+  eventMetadata:
+    summary: "Flux reconciliation error — production platform"

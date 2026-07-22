@@ -1,0 +1,24 @@
+- op: test
+  path: /spec/groups/3/name
+  value: flux
+- op: test
+  path: /spec/groups/3/rules/0/alert
+  value: FluxKustomizationNotReady
+- op: test
+  path: /spec/groups/3/rules/0/expr
+  value: |
+    gotk_reconcile_condition{type="Ready",status="False",
+                             kind=~"Kustomization|HelmRelease"} == 1
+- op: replace
+  path: /spec/groups/3/rules/0/alert
+  value: FluxHelmReleaseNotReady
+- op: replace
+  path: /spec/groups/3/rules/0/expr
+  value: |
+    gotk_reconcile_condition{type="Ready",status="False",kind="HelmRelease"} == 1
+- op: replace
+  path: /spec/groups/3/rules/0/annotations/summary
+  value: "Flux HelmRelease {{ $labels.namespace }}/{{ $labels.name }} not Ready"
+- op: replace
+  path: /spec/groups/3/rules/0/annotations/description
+  value: "kubectl describe HelmRelease -n {{ $labels.namespace }} {{ $labels.name }}"

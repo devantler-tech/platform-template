@@ -17,3 +17,10 @@ patches:
       kind: Coroot
       name: coroot
       namespace: observability
+  - path: patches/retain-helm-release-alert.yaml
+    target:
+      group: monitoring.coreos.com
+      version: v1
+      kind: PrometheusRule
+      name: platform-critical
+      namespace: monitoring

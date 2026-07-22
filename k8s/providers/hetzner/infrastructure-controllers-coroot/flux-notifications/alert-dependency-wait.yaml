@@ -1,0 +1,18 @@
+# Dependency waits are info events in Flux. Match only their message shape so
+# other successful or routine info events do not create operator noise.
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: platform-dependency-wait
+  namespace: flux-system
+spec:
+  providerRef:
+    name: slack
+  eventSeverity: info
+  eventSources:
+    - kind: Kustomization
+      name: "*"
+  inclusionList:
+    - ".*Dependencies do not meet ready condition.*"
+  eventMetadata:
+    summary: "Flux dependency wait — production platform"

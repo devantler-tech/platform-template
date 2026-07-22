@@ -86,6 +86,14 @@ enforced for that namespace.
 The production / Hetzner Coroot profile reuses the existing encrypted webhook
 variable for Coroot incident and resolution notifications. Its matching provider
 policy permits only `hooks.slack.com:443`, so keep this value a Slack incoming-webhook URL.
+Flux notification-controller reuses the same `alertmanager_webhook_url` only in
+the production Coroot profile to report failed reconciliations. The
+controller layer applies both Flux alerts before it waits for every controller
+to become ready: one forwards all `Kustomization` error events, while a
+narrow info-severity path for dependency waits covers a prerequisite that is
+not ready. The legacy Prometheus rule keeps only HelmRelease coverage, so a
+Kustomization failure reaches Slack once. There
+is no fourth secret or polling workload to configure.
 Per-alert notifications remain visible only in the Coroot UI; this avoids sending
 every noisy alert to the shared webhook. Local / Docker Coroot stays notification-free.
 The profile also stages one hardened `cluster-heartbeat` CronJob for the cluster
@@ -109,9 +117,10 @@ deny policy from blocking the new workload during an upgrade. The invalid URL
 fallback keeps local and unconfigured instances inert. Both default and Coroot
 profiles keep Watchdog unchanged on the distinct Alertmanager pipeline monitor,
 which preserves a dead-man signal until the apps layer starts the direct check.
-Kube-prometheus-stack keeps owning its remaining alert
-rules, including Flux reconciliation alerts, until that migration is delivered
-separately.
+Flux notification-controller now owns reconciliation errors in the production
+Coroot profile, including dependency waits.
+Kube-prometheus-stack keeps owning its remaining metric-backed alert rules and
+the Watchdog pipeline until those migrations are delivered separately.
 
 Open the Coroot UI at `https://observability.<your-domain>`. Community Edition
 does not provide native OIDC, so this profile sends every UI request through the
