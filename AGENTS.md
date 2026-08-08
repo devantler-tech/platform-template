@@ -94,10 +94,13 @@ Hierarchical overlays: **base** (`k8s/bases/`) → **provider** (`k8s/providers/
 Kustomize `replacements:` that repoint each Flux Kustomization (`bootstrap`,
 `infrastructure-controllers`, `infrastructure`, `apps`) at the correct provider/cluster
 path. Put a change in the layer that matches its scope: edit `k8s/bases/` when it
-must reach **every** cluster and provider, and add an overlay `patches/` fragment
-when it must reach **one**. Bases are shared, not frozen — editing them is the
-ordinary case. What to avoid is mutating a base to obtain a *per-overlay* result,
-because that silently moves every other consumer with it. Flux dependency order is
+should hold for **every consumer of that resource**, and add an overlay `patches/`
+fragment only for a genuine per-consumer difference. "Every consumer" is not
+"every cluster" — a base with one consumer today still holds the canonical
+configuration, and patching it into that one overlay leaves the base stale for
+whoever adopts it next. Bases are shared, not frozen: editing them is the ordinary
+case. What to avoid is mutating a base to obtain a *per-overlay* result, because
+that silently moves every other consumer with it. Flux dependency order is
 **bootstrap → infrastructure-controllers → infrastructure → apps**.
 
 ## Validation
