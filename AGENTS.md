@@ -93,8 +93,14 @@ Hierarchical overlays: **base** (`k8s/bases/`) → **provider** (`k8s/providers/
 **cluster** (`k8s/clusters/`). The cluster overlay's `cluster-meta` ConfigMap drives
 Kustomize `replacements:` that repoint each Flux Kustomization (`bootstrap`,
 `infrastructure-controllers`, `infrastructure`, `apps`) at the correct provider/cluster
-path. Base files are **immutable** from overlays — change them with Kustomize
-`patches:`, never by editing `k8s/bases/` directly. Flux dependency order is
+path. Put a change in the layer that matches its scope: edit `k8s/bases/` when it
+should hold for **every consumer of that resource**, and add an overlay `patches/`
+fragment only for a genuine per-consumer difference. "Every consumer" is not
+"every cluster" — a base with one consumer today still holds the canonical
+configuration, and patching it into that one overlay leaves the base stale for
+whoever adopts it next. Bases are shared, not frozen: editing them is the ordinary
+case. What to avoid is mutating a base to obtain a *per-overlay* result, because
+that silently moves every other consumer with it. Flux dependency order is
 **bootstrap → infrastructure-controllers → infrastructure → apps**.
 
 ## Validation
@@ -223,9 +229,9 @@ audit-log-forwarder profiles also run
 `./scripts/validate-observability-option.sh` to cover its default-off and opt-in
 layers. **Never run a cluster** (no `ksail cluster create`/`update`/
 `delete`, no mutating `~/.kube/config`). **Protected — never modify**
-in this repo: `*.enc.yaml`, `.sops.yaml`; **bases immutable** — change via Kustomize
-`patches:` in overlays, never edit `k8s/bases/` from an overlay; respect Flux order
-`bootstrap → infrastructure-controllers → infrastructure → apps`.
+in this repo: `*.enc.yaml`, `.sops.yaml`. Manifest layering (which change belongs
+in a base and which in an overlay patch) and Flux dependency order are stated
+under *Kustomization flow* above.
 
 **Task menu** (pick 1–2; conservative, template-appropriate):
 - **Triage & label** unlabelled issues/PRs; remove misapplied labels; close obvious spam.
