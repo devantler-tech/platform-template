@@ -69,6 +69,11 @@ jobs:
         # source and rendered behavior instead of trusting a URL-only build.
         run: ./scripts/validate-shared-cluster-policies.sh
 
+      - name: 🌱 Validate bootstrap workflow
+        # Exercise the App-token permissions and commit-back failure path that
+        # every generated platform repository inherits from this template.
+        run: ./scripts/validate-bootstrap-workflow.sh
+
       - name: ✅ Validate local manifests
         # ksail workload validate = kustomize build + kubeconform + Flux ${VAR}
         # substitution. A broken kustomization, an invalid resource, or an
