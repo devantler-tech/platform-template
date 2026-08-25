@@ -162,33 +162,11 @@ spec:
                 requests:
                   cpu: 50m
                   memory: 128Mi
-            # TODO: Remove workaround when SPIRE no longer fails to start (https://github.com/cilium/cilium/issues/40533)
             server:
               resources:
                 requests:
                   cpu: 50m
                   memory: 128Mi
-              initContainers:
-              - command:
-                - /bin/sh
-                - -c
-                - |
-                  chown -R 1000:1000 /run/spire/data
-                  chown -R 1000:1000 /tmp/spire-server
-                image: docker.io/library/busybox:1.38.0@sha256:fd8d9aa63ba2f0982b5304e1ee8d3b90a210bc1ffb5314d980eb6962f1a9715d
-                imagePullPolicy: IfNotPresent
-                name: chown
-                securityContext:
-                  runAsGroup: 0
-                  runAsUser: 0
-                volumeMounts:
-                - mountPath: /run/spire/data
-                  name: spire-data
-                - mountPath: /tmp/spire-server/private
-                  name: spire-server-socket
-              securityContext:
-                runAsGroup: 1000
-                runAsUser: 1000
     gatewayAPI:
       enabled: true
       enableAlpn: true
