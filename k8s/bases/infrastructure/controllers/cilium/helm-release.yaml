@@ -167,6 +167,36 @@ spec:
                 requests:
                   cpu: 50m
                   memory: 128Mi
+              initContainers:
+              - command:
+                - /bin/sh
+                - -c
+                - |
+                  chown -R 1000:1000 /run/spire/data
+                  chown -R 1000:1000 /tmp/spire-server
+                image: docker.io/library/busybox:1.38.0@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
+                imagePullPolicy: IfNotPresent
+                name: chown
+                securityContext:
+                  runAsGroup: 0
+                  runAsUser: 0
+                volumeMounts:
+                - mountPath: /run/spire/data
+                  name: spire-data
+                - mountPath: /tmp/spire-server/private
+                  name: spire-server-socket
+              # The chart's cilium-init bootstrap container reaches the SPIRE
+              # admin socket through /proc/<pid>/root. Ptrace access requires
+              # its UID/GID to match spire-server, so set the identity at pod
+              # level; the chown init container overrides this back to root.
+              # TODO: Remove the ownership workaround when Cilium fixes
+              # https://github.com/cilium/cilium/issues/40533.
+              podSecurityContext:
+                runAsGroup: 1000
+                runAsUser: 1000
+              securityContext:
+                runAsGroup: 1000
+                runAsUser: 1000
     gatewayAPI:
       enabled: true
       enableAlpn: true
