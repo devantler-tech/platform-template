@@ -278,4 +278,4 @@ jobs:
         # Jobs) that previously only the system-test path emitted. kubectl uses
         # the Talos cert-based admin@prod kubeconfig, so no HCLOUD_TOKEN is
         # needed by the diagnostics themselves.
-        uses: devantler-tech/actions/diagnose-flux@b3783a5148b844b3f1f4011cdc84871ad66348c1 # v13.0.9
+        uses: devantler-tech/actions/diagnose-flux@0de1d284f879d62d6fe316d3997fd3ea8f092fb3 # v13.2.1
