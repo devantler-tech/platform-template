@@ -45,7 +45,8 @@ jobs:
               # directory, and instances add environments as talos-<env>/.
               - 'talos*/**'
               - '.github/workflows/ci.yaml'
-              - 'scripts/validate-naming.sh'
+              - '.github/manifest-naming*.yaml'
+              - '.github/workflows/validate-naming.yaml'
 
   validate-naming:
     name: 🏷️ Validate Naming Conventions
@@ -53,11 +54,11 @@ jobs:
     # Static folder/file naming gate: kebab-case dirs, one-resource-per-file,
     # Kind-led filenames, CR-folder plurals, patch/talos intent naming, and
     # flux-kustomization disambiguation — the reference platform's conventions
-    # (platform#2315), ported to bash. No cluster, no secrets, no network, so
-    # it also runs on fork PRs and returns in seconds. Template-repo-only:
+    # (platform#2315), shared through devantler-tech/actions. No cluster or
+    # secrets; Go setup/build can download dependencies. Template-repo-only:
     # instances run the gate via the template-synced validate-naming.yaml
     # (their ci.yaml is instance-owned), so without this guard every instance
-    # k8s PR would run the same script twice.
+    # k8s PR would run the same gate twice.
     if: github.repository == 'devantler-tech/platform-template' && github.event_name == 'pull_request' && needs.changes.outputs.k8s == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -74,7 +75,10 @@ jobs:
           persist-credentials: false
 
       - name: 🏷️ Validate naming conventions
-        run: ./scripts/validate-naming.sh
+        uses: devantler-tech/actions/validate-naming@883d891a0e6a2c9420d2b60aea9d5f47c20ce803 # v13.5.0
+        with:
+          enabled: "true"
+          config-file: ${{ hashFiles('.github/manifest-naming.local.yaml') != '' && '.github/manifest-naming.local.yaml' || '.github/manifest-naming.yaml' }}
 
   system-test:
     name: 🧪 System Test

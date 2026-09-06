@@ -12,7 +12,7 @@ on:
     paths:
       - "k8s/**"
       - "talos*/**"
-      - "scripts/validate-naming.sh"
+      - ".github/manifest-naming*.yaml"
       - ".github/workflows/validate-naming.yaml"
 
 permissions: {}
@@ -25,9 +25,17 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: 🛡️ Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: 🏷️ Validate naming conventions
-        run: ./scripts/validate-naming.sh
+        uses: devantler-tech/actions/validate-naming@883d891a0e6a2c9420d2b60aea9d5f47c20ce803 # v13.5.0
+        with:
+          enabled: "true"
+          config-file: ${{ hashFiles('.github/manifest-naming.local.yaml') != '' && '.github/manifest-naming.local.yaml' || '.github/manifest-naming.yaml' }}
