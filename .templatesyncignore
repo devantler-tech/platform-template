@@ -23,6 +23,9 @@ SECURITY.md
 # --- CI / release / dependency config the instance tailors ---
 .github/workflows/ci.yaml
 .github/dependabot.yml
+# The shared defaults are template-owned. This optional full override is never
+# shipped by the template, so existing instances can also tailor it safely.
+.github/manifest-naming.local.yaml
 .releaserc
 .gitignore
 .cspell.json

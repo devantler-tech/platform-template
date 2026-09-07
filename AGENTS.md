@@ -154,7 +154,8 @@ same-repo (non-fork) PRs; let CI run it, do not attempt it locally.
 ### File and directory naming conventions
 
 Manifest naming follows the reference platform's conventions (platform#2315),
-enforced by `./scripts/validate-naming.sh` (a CI gate on every `k8s/**` PR):
+enforced by the shared `devantler-tech/actions/validate-naming` action (a CI gate
+on manifest, naming-configuration, and naming-workflow changes):
 
 - **Kebab-case** directories and file stems everywhere under `k8s/` and `talos*/`
   (vendored upstream files inside CR folders — e.g. the testkube CRD dumps —
@@ -168,7 +169,7 @@ enforced by `./scripts/validate-naming.sh` (a CI gate on every `k8s/**` PR):
 - **CR folders** (a folder grouping instances of one non-workload Kind) are named
   the Kind's kebab-case plural (`cluster-security-exceptions/`, `external-secrets/`)
   and their files are named by intent, not Kind — the folder already says the Kind.
-  New plural-Kind folders are registered in the gate's `cr_dir_paths` list.
+  New plural-Kind folders are registered in the configuration's `cr-directories` list.
 - **Patch fragments** live under a `patches/` directory, named by intent as
   `<verb>-<purpose>.yaml` (`store-data-on-hcloud.yaml`) — never a redundant
   `-patch` suffix and never led by the patched Kind.
@@ -179,7 +180,27 @@ enforced by `./scripts/validate-naming.sh` (a CI gate on every `k8s/**` PR):
   template-sync overwrite an instance's tailored values with template defaults
   (the gate carries an explicit exemption list for them).
 
-Run the gate locally before any manifest PR: `./scripts/validate-naming.sh`.
+Shared defaults live in [`.github/manifest-naming.yaml`](.github/manifest-naming.yaml)
+and are template-owned. An instance that needs different roots or exceptions
+copies that file to `.github/manifest-naming.local.yaml`, edits the copy, and
+commits it. CI uses the override when present. The template never ships that
+override, and `.templatesyncignore` protects it, so syncs update shared defaults
+without overwriting an instance's tailored configuration. `patch-roots: ["talos*"]`
+continues to cover new machine-config environments automatically.
+
+Run the same pinned gate locally before a manifest PR, with Go installed:
+
+```bash
+actions_dir="$(mktemp -d)"
+git clone --quiet --depth 1 --branch v13.5.0 https://github.com/devantler-tech/actions.git "$actions_dir"
+git -C "$actions_dir" checkout --quiet --detach 883d891a0e6a2c9420d2b60aea9d5f47c20ce803
+GOWORK=off go -C "$actions_dir/validate-naming" run -mod=readonly . \
+  --root "$PWD" --config .github/manifest-naming.yaml
+```
+
+Pass `.github/manifest-naming.local.yaml` instead when using an instance override.
+Go setup and dependency downloads need network access; validation itself is
+offline and never contacts a cluster.
 
 ## Maintenance (autonomous AI assistant)
 
