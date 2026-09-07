@@ -78,7 +78,7 @@ jobs:
         uses: devantler-tech/actions/validate-naming@883d891a0e6a2c9420d2b60aea9d5f47c20ce803 # v13.5.0
         with:
           enabled: "true"
-          config-file: ${{ hashFiles('.github/manifest-naming.local.yaml') != '' && '.github/manifest-naming.local.yaml' || '.github/manifest-naming.yaml' }}
+          config-file: .github/manifest-naming.yaml
 
   system-test:
     name: 🧪 System Test
