@@ -14,10 +14,14 @@ jobs:
     # source; downstream instances release independently).
     if: github.repository != 'devantler-tech/platform-template'
     uses: devantler-tech/actions/.github/workflows/create-release.yaml@a147ead8b8bc937fbfb1974e3698c7e32f95517d # v13.5.1
+    with:
+      # Skip semantic-release's success/fail hooks, which comment on referenced
+      # issues and PRs. A bare `fix #N` meant for another repository otherwise
+      # fails the release after the tag and GitHub Release already exist
+      # (devantler-tech/actions#610), so no issue or PR write access is needed.
+      disable-issue-side-effects: true
     permissions:
       contents: write # create releases and tags
-      issues: write # comment on related issues
-      pull-requests: write # comment on related PRs
       id-token: write # provenance signing
     secrets:
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
