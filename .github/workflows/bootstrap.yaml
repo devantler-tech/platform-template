@@ -21,10 +21,12 @@ name: 🌱 Bootstrap
 #     default GITHUB_TOKEN cannot set repository/environment secrets, which is
 #     why an App (or a fine-grained PAT) is required.
 #   * GitHub *Variables*: DOMAIN, CLOUDFLARE_ZONE, CLOUDFLARE_ACCOUNT_ID,
-#     ADMIN_EMAIL, HETZNER_LOCATION, GITHUB_APP_CLIENT_ID, R2_BUCKET (optional).
+#     ADMIN_EMAIL, HETZNER_LOCATION, SSO_GITHUB_APP_CLIENT_ID, R2_BUCKET (optional).
 #   * GitHub *Secrets*: HCLOUD_TOKEN, GHCR_TOKEN, CLOUDFLARE_API_TOKEN,
 #     R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, ALERTMANAGER_WEBHOOK_URL,
-#     ALERTMANAGER_HEARTBEAT_URL, GITHUB_APP_CLIENT_SECRET, APP_PRIVATE_KEY.
+#     ALERTMANAGER_HEARTBEAT_URL, SSO_GITHUB_APP_CLIENT_SECRET, APP_PRIVATE_KEY.
+#   GitHub reserves the GITHUB_ prefix for Variables and Secrets, so the SSO
+#   App's credentials carry an SSO_ prefix.
 
 on:
   workflow_dispatch:
@@ -70,6 +72,49 @@ jobs:
         run: |
           echo "::error::Refusing to run: set the 'confirm' input to 'yes'."
           exit 1
+
+      - name: 🧾 Check required configuration
+        # An unset Variable or Secret renders as an empty string, so without this
+        # check the bootstrap would encrypt empty credentials and provision a
+        # cluster that cannot authenticate. Stop before anything is changed.
+        shell: bash
+        env:
+          BOOTSTRAP_ENVIRONMENT: ${{ inputs.environment }}
+          DOMAIN: ${{ vars.DOMAIN }}
+          CLOUDFLARE_ZONE: ${{ vars.CLOUDFLARE_ZONE }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
+          SSO_GITHUB_APP_CLIENT_ID: ${{ vars.SSO_GITHUB_APP_CLIENT_ID }}
+          APP_ID: ${{ vars.APP_ID }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ALERTMANAGER_WEBHOOK_URL: ${{ secrets.ALERTMANAGER_WEBHOOK_URL }}
+          SSO_GITHUB_APP_CLIENT_SECRET: ${{ secrets.SSO_GITHUB_APP_CLIENT_SECRET }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          ALERTMANAGER_HEARTBEAT_URL: ${{ secrets.ALERTMANAGER_HEARTBEAT_URL }}
+        run: |
+          set -euo pipefail
+          required=(
+            DOMAIN CLOUDFLARE_ZONE CLOUDFLARE_ACCOUNT_ID ADMIN_EMAIL SSO_GITHUB_APP_CLIENT_ID APP_ID
+            GHCR_TOKEN CLOUDFLARE_API_TOKEN R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
+            ALERTMANAGER_WEBHOOK_URL SSO_GITHUB_APP_CLIENT_SECRET APP_PRIVATE_KEY
+          )
+          if [ "${BOOTSTRAP_ENVIRONMENT}" = "prod" ]; then
+            required+=(HCLOUD_TOKEN ALERTMANAGER_HEARTBEAT_URL)
+          fi
+          missing=()
+          for name in "${required[@]}"; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("${name}")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Set these repository Variables or Secrets before bootstrapping (see docs/BOOTSTRAP.md): ${missing[*]}"
+            exit 1
+          fi
 
       - name: 🎟️ Mint App token
         id: app-token
@@ -136,7 +181,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
           HETZNER_LOCATION: ${{ vars.HETZNER_LOCATION }}
-          GITHUB_APP_CLIENT_ID: ${{ vars.GITHUB_APP_CLIENT_ID }}
+          SSO_GITHUB_APP_CLIENT_ID: ${{ vars.SSO_GITHUB_APP_CLIENT_ID }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
@@ -159,13 +204,13 @@ jobs:
           yq -i '
             .data.domain = strenv(DOMAIN) |
             .data.domain_regex = strenv(DOMAIN_REGEX) |
-            .data.github_app_client_id = strenv(GITHUB_APP_CLIENT_ID) |
+            .data.github_app_client_id = strenv(SSO_GITHUB_APP_CLIENT_ID) |
             .data.admin_email = strenv(ADMIN_EMAIL)
           ' k8s/clusters/prod/bootstrap/variables-cluster-config-map.yaml
 
           # --- variables-cluster (local — keeps platform.lan, just identity) ---
           yq -i "
-            .data.github_app_client_id = strenv(GITHUB_APP_CLIENT_ID) |
+            .data.github_app_client_id = strenv(SSO_GITHUB_APP_CLIENT_ID) |
             .data.admin_email = strenv(ADMIN_EMAIL)
           " k8s/clusters/local/bootstrap/variables-cluster-config-map.yaml
 
@@ -190,14 +235,17 @@ jobs:
           ALERTMANAGER_WEBHOOK_URL: ${{ secrets.ALERTMANAGER_WEBHOOK_URL }}
           ALERTMANAGER_HEARTBEAT_URL: ${{ secrets.ALERTMANAGER_HEARTBEAT_URL }}
           CLUSTER_HEARTBEAT_URL: ${{ secrets.CLUSTER_HEARTBEAT_URL }}
-          GITHUB_APP_CLIENT_SECRET: ${{ secrets.GITHUB_APP_CLIENT_SECRET }}
+          SSO_GITHUB_APP_CLIENT_SECRET: ${{ secrets.SSO_GITHUB_APP_CLIENT_SECRET }}
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
         run: |
           set -euo pipefail
           # Internal secrets that need no human input — generate random values.
-          export DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
-          export FLUX_WEB_CLIENT_SECRET="$(openssl rand -hex 32)"
-          export OAUTH2_PROXY_COOKIE_SECRET="$(openssl rand -base64 32)"
+          # Assign before exporting: `export VAR="$(cmd)"` returns export's status,
+          # so a failed generator would continue with an empty secret.
+          DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
+          FLUX_WEB_CLIENT_SECRET="$(openssl rand -hex 32)"
+          OAUTH2_PROXY_COOKIE_SECRET="$(openssl rand -base64 32)"
+          export DEX_CLIENT_SECRET FLUX_WEB_CLIENT_SECRET OAUTH2_PROXY_COOKIE_SECRET
 
           # The dedicated Coroot heartbeat has an exact hc-ping.com egress
           # policy. Reject a configured URL that the cluster cannot reach rather
@@ -245,7 +293,7 @@ jobs:
             .stringData.dex_client_secret = strenv(DEX_CLIENT_SECRET) |
             .stringData.flux_web_client_secret = strenv(FLUX_WEB_CLIENT_SECRET) |
             .stringData.oauth2_proxy_cookie_secret = strenv(OAUTH2_PROXY_COOKIE_SECRET) |
-            .stringData.github_app_client_secret = strenv(GITHUB_APP_CLIENT_SECRET) |
+            .stringData.github_app_client_secret = strenv(SSO_GITHUB_APP_CLIENT_SECRET) |
             .stringData.hcloud_token = strenv(HCLOUD_TOKEN) |
             .stringData.r2_access_key_id = strenv(R2_ACCESS_KEY_ID) |
             .stringData.r2_secret_access_key = strenv(R2_SECRET_ACCESS_KEY)
@@ -257,7 +305,7 @@ jobs:
             .stringData.dex_client_secret = strenv(DEX_CLIENT_SECRET) |
             .stringData.flux_web_client_secret = strenv(FLUX_WEB_CLIENT_SECRET) |
             .stringData.oauth2_proxy_cookie_secret = strenv(OAUTH2_PROXY_COOKIE_SECRET) |
-            .stringData.github_app_client_secret = strenv(GITHUB_APP_CLIENT_SECRET) |
+            .stringData.github_app_client_secret = strenv(SSO_GITHUB_APP_CLIENT_SECRET) |
             .stringData.r2_access_key_id = strenv(R2_ACCESS_KEY_ID) |
             .stringData.r2_secret_access_key = strenv(R2_SECRET_ACCESS_KEY)
           ' k8s/clusters/local/bootstrap/variables-cluster-secret.enc.yaml
