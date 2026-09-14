@@ -96,7 +96,7 @@ Set these in your **new instance repository** under *Settings → Secrets and va
 | `CLOUDFLARE_ZONE` | The Cloudflare zone the domain lives in (e.g. `example.com`) | Cloudflare dashboard → your domain. |
 | `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID (used to build the R2 S3 endpoint) | Cloudflare dashboard → account home → **Account ID**. |
 | `ADMIN_EMAIL` | Operator email; used for Let’s Encrypt registration and the cluster’s read-only OIDC RBAC subject (e.g. `admin@example.com`) | You choose it. |
-| `HETZNER_LOCATION` | Primary Hetzner datacenter: `fsn1`, `nbg1`, or `hel1` | [Hetzner locations](https://docs.hetzner.com/cloud/general/locations/). |
+| `HETZNER_LOCATION` | Primary Hetzner datacenter: `fsn1`, `nbg1`, or `hel1` (required for a `prod` bootstrap) | [Hetzner locations](https://docs.hetzner.com/cloud/general/locations/). |
 | `SSO_GITHUB_APP_CLIENT_ID` | **Client ID** of the *cluster SSO* GitHub App (Dex’s GitHub connector) | The SSO App’s settings page. |
 | `R2_BUCKET` | Backup bucket name (optional; defaults to `platform-backups`) | Cloudflare R2 → your bucket. |
 | `APP_ID` | App ID of the **bootstrap** GitHub App (see prerequisites) | The bootstrap App’s settings page. |

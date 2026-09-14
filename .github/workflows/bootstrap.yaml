@@ -95,6 +95,7 @@ jobs:
           APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
           ALERTMANAGER_HEARTBEAT_URL: ${{ secrets.ALERTMANAGER_HEARTBEAT_URL }}
+          HETZNER_LOCATION: ${{ vars.HETZNER_LOCATION }}
         run: |
           set -euo pipefail
           required=(
@@ -103,7 +104,8 @@ jobs:
             ALERTMANAGER_WEBHOOK_URL SSO_GITHUB_APP_CLIENT_SECRET APP_PRIVATE_KEY
           )
           if [ "${BOOTSTRAP_ENVIRONMENT}" = "prod" ]; then
-            required+=(HCLOUD_TOKEN ALERTMANAGER_HEARTBEAT_URL)
+            # Without a location, prod would silently keep the template's default datacenter.
+            required+=(HCLOUD_TOKEN ALERTMANAGER_HEARTBEAT_URL HETZNER_LOCATION)
           fi
           missing=()
           for name in "${required[@]}"; do

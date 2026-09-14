@@ -90,6 +90,12 @@ else
   if run_check prod "HCLOUD_TOKEN"; then
     fail "the configuration check accepted an empty HCLOUD_TOKEN for a prod bootstrap"
   fi
+  if run_check prod "HETZNER_LOCATION"; then
+    fail "the configuration check accepted an empty HETZNER_LOCATION for a prod bootstrap"
+  fi
+  if ! run_check local "HETZNER_LOCATION"; then
+    fail "the configuration check required the prod-only HETZNER_LOCATION for a local bootstrap"
+  fi
 fi
 
 # --- A failed secret generator stops the encryption step ---
