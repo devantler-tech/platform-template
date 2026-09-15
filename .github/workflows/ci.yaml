@@ -153,7 +153,7 @@ jobs:
     environment: prod
     # Shared with the CD tag-deploy workflow (cd.yaml) so a tag deploy and a
     # merge-queue deploy can never run against the prod cluster at once. `queue: max`
-    # keeps every waiting deploy in order instead of cancelling the pending one.
+    # keeps up to 100 waiting deploys in order instead of cancelling the pending one.
     concurrency:
       group: prod-deploy
       cancel-in-progress: false
