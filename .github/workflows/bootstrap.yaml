@@ -44,9 +44,12 @@ on:
 permissions: {}
 
 # Never let two bootstraps (or a bootstrap and a deploy) race the same cluster.
+# `queue: max` keeps every waiting run in order; the default queue holds one pending
+# run and silently cancels it when another arrives.
 concurrency:
   group: prod-deploy
   cancel-in-progress: false
+  queue: max
 
 env:
   # renovate: datasource=github-releases depName=devantler-tech/ksail extractVersion=^v(?<version>.+)$

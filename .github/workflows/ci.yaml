@@ -152,10 +152,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: prod
     # Shared with the CD tag-deploy workflow (cd.yaml) so a tag deploy and a
-    # merge-queue deploy can never run against the prod cluster at once.
+    # merge-queue deploy can never run against the prod cluster at once. `queue: max`
+    # keeps every waiting deploy in order instead of cancelling the pending one.
     concurrency:
       group: prod-deploy
       cancel-in-progress: false
+      queue: max
     permissions:
       contents: read # checkout repository
       packages: write # push OCI artifacts to GHCR
