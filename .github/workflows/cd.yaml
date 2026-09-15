@@ -9,9 +9,12 @@ permissions: {}
 
 # Shared with the CI merge-queue deploy-prod job (ci.yaml) so a tag deploy
 # and a merge-queue deploy can never run against the prod cluster at once.
+# `queue: max` keeps up to 100 waiting deploys in order (GitHub cancels any beyond that);
+# the default queue holds one pending run and silently cancels it when another arrives.
 concurrency:
   group: prod-deploy
   cancel-in-progress: false
+  queue: max
 
 jobs:
   deploy-prod:
