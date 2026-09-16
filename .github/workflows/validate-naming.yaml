@@ -35,7 +35,7 @@ jobs:
           persist-credentials: false
 
       - name: 🏷️ Validate naming conventions
-        uses: devantler-tech/actions/validate-naming@a147ead8b8bc937fbfb1974e3698c7e32f95517d # v13.5.1
+        uses: devantler-tech/actions/validate-naming@3c3a6348b3e7aacc995ae49fc60032f95f70a779 # v13.6.5
         with:
           enabled: "true"
           config-file: ${{ hashFiles('.github/manifest-naming.local.yaml') != '' && '.github/manifest-naming.local.yaml' || '.github/manifest-naming.yaml' }}
