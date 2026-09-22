@@ -23,5 +23,8 @@ jobs:
     uses: devantler-tech/actions/.github/workflows/template-sync.yaml@3c3a6348b3e7aacc995ae49fc60032f95f70a779 # v13.6.5
     with:
       source-repo-path: devantler-tech/platform-template
+      # Push with the App token: GITHUB_TOKEN can never update workflow files, so a
+      # template change under .github/workflows would otherwise stop the sync.
+      use-app-token: true
     secrets:
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
