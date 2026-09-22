@@ -73,9 +73,10 @@ ksail.prod.yaml         # KSail production cluster config (Talos + Hetzner, kust
 hosts                   # Host entries mapping *.platform.lan names to 127.0.0.1 for local access — instance-owned
 .sops.yaml              # SOPS encryption rules and Age public keys — instance-owned
 .releaserc              # semantic-release configuration
-docs/                   # Operator & disaster-recovery runbooks (TEMPLATE-OWNED) — BOOTSTRAP,
-                        #   TEMPLATING, TENANTS, node-autoscaling, oidc-kubectl, runtime-security,
-                        #   rwx-storage, secret-rotation
+docs/                   # Operator & disaster-recovery runbooks (TEMPLATE-OWNED) — ARCHITECTURE
+                        #   (component inventory, clusters, layout; the README links here instead
+                        #   of inlining it), BOOTSTRAP, TEMPLATING, TENANTS, node-autoscaling,
+                        #   oidc-kubectl, runtime-security, rwx-storage, secret-rotation
   dr/                   # Disaster-recovery runbooks: README, runbook, restore-drill, alerting,
                         #   crypto-custody, openbao, velero-cnpg
 ```
