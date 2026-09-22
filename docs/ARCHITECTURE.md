@@ -100,11 +100,16 @@ The cluster configuration lives under `k8s/*`:
   - [`infrastructure`](../k8s/bases/infrastructure) — infrastructure components.
   - [`apps`](../k8s/bases/apps) — the demo applications.
   - [`bootstrap`](../k8s/bases/bootstrap) — the foundational **bootstrap layer**: shared substitution variables (`variables-base` ConfigMap + SOPS-encrypted Secret) and cluster-scoped PriorityClasses, reconciled by the `bootstrap` Flux Kustomization before everything that `dependsOn` it.
+- [`components/`](../k8s/components) — shared opt-in Kustomize components. Only the opt-in provider
+  profiles use them, to switch to [Coroot](TEMPLATING.md#select-the-transitional-coroot-profile) or
+  add the [recommended-labels policy](TEMPLATING.md#add-recommended-workload-labels-at-admission);
+  the default paths use none of them.
 
 ### Kustomize overlay flow
 
 Each cluster environment references a provider overlay, which patches the shared base
-resources:
+resources. An opt-in profile points the cluster at a provider profile that also pulls in shared
+components:
 
 ```mermaid
 graph LR
@@ -118,11 +123,14 @@ graph LR
   end
   subgraph "Shared"
     bases["bases/*"]
+    components["components/*"]
   end
   local --> docker
   prod --> hetzner
   docker --> bases
   hetzner --> bases
+  docker -.->|opt-in profiles| components
+  hetzner -.->|opt-in profiles| components
 ```
 
 ### Flux Kustomization dependency chain
