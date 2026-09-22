@@ -33,18 +33,20 @@ The [Bootstrap workflow](.github/workflows/bootstrap.yaml) takes a new repositor
 Hetzner cluster with live DNS, unattended:
 
 1. **Use this template** → **Create a new repository** on GitHub.
-2. **Install a GitHub App** on the new repository and add its `APP_ID` as a Variable and its
-   `APP_PRIVATE_KEY` as a Secret. The bootstrap writes the cluster's credentials back as secrets,
-   which the default `GITHUB_TOKEN` is not allowed to do.
+2. **Install a GitHub App** on the new repository with the
+   [four permissions it needs](docs/BOOTSTRAP.md#1-install-the-bootstrap-github-app), and add its
+   `APP_ID` as a Variable and its `APP_PRIVATE_KEY` as a Secret. The bootstrap writes the cluster's
+   credentials back as secrets, which the default `GITHUB_TOKEN` is not allowed to do.
 3. **Add your Variables and Secrets** — Variables such as `DOMAIN`, `CLOUDFLARE_ZONE`,
    `ADMIN_EMAIL` and `HETZNER_LOCATION`, and Secrets such as `HCLOUD_TOKEN` and
-   `CLOUDFLARE_API_TOKEN`. The bootstrap generates `SOPS_AGE_KEY`, `KUBE_CONFIG` and
-   `TALOS_CONFIG` itself.
+   `CLOUDFLARE_API_TOKEN`; [the full list](docs/BOOTSTRAP.md#configuration) says what each one is
+   and where to get it. The bootstrap generates `SOPS_AGE_KEY`, `KUBE_CONFIG` and `TALOS_CONFIG`
+   itself.
 4. **Run it** — Actions → **🌱 Bootstrap** → *Run workflow*, choose `prod`, and type `yes`.
 
 From then on, merging a pull request deploys through the merge queue, and pushing a `v*` tag
-deploys through the CD pipeline. [`docs/BOOTSTRAP.md`](docs/BOOTSTRAP.md) is the full guide: the
-App's permissions, every Variable and Secret, verification, teardown and troubleshooting.
+deploys through the CD pipeline. [`docs/BOOTSTRAP.md`](docs/BOOTSTRAP.md) is the full guide,
+including verification, teardown and troubleshooting.
 
 ## Local development
 
