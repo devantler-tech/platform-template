@@ -8,7 +8,36 @@ on:
 permissions: {}
 
 jobs:
+  # Names the missing App configuration instead of letting the sync fail inside the
+  # token step with no hint at what to set (docs/BOOTSTRAP.md, section 2).
+  app-config:
+    name: 🔑 Check template sync App configuration
+    if: github.repository != 'devantler-tech/platform-template'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: 🛡️ Harden runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: 🔑 Require the App client ID and private key
+        env:
+          APP_CLIENT_ID: ${{ vars.APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: |
+          missing=()
+          [[ -n "${APP_CLIENT_ID}" ]] || missing+=("the APP_CLIENT_ID variable")
+          [[ -n "${APP_PRIVATE_KEY}" ]] || missing+=("the APP_PRIVATE_KEY secret")
+          if ((${#missing[@]} > 0)); then
+            joined="${missing[0]}"
+            ((${#missing[@]} == 1)) || joined="${missing[0]} and ${missing[1]}"
+            echo "::error title=Template sync is not configured::Set ${joined} for this repository's GitHub App; see docs/BOOTSTRAP.md, section 2 (Let the same App run the weekly template sync)."
+            exit 1
+          fi
+
   template-sync:
+    needs: app-config
     # Skipped in the template repo itself (it is the sync source); runs in every
     # instance created from this template, where it opens a PR with template changes.
     if: github.repository != 'devantler-tech/platform-template'
