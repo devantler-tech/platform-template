@@ -85,13 +85,18 @@ preferred because its token is short-lived and scoped to the install.
 
 [`template-sync.yaml`](../.github/workflows/template-sync.yaml) keeps your instance
 current with this template: every Monday at 06:00 UTC it opens a pull request with the
-template’s changes, including security baseline updates. It signs in as the bootstrap
-App, because the default `GITHUB_TOKEN` cannot change workflow files. It reads the same
-`APP_PRIVATE_KEY` secret, so it must be the same App. Give it:
+template’s changes, including security baseline updates. It signs in as a GitHub App,
+because the default `GITHUB_TOKEN` cannot change workflow files. It reads the same
+`APP_PRIVATE_KEY` secret as bootstrap, so if you bootstrapped with an App it must be
+that App. Give it:
 
 - **Pull requests: write** and **Workflows: write**, on top of the bootstrap’s
   **Contents: write**. Without **Workflows: write** the App token cannot be created.
 - **Variable** `APP_CLIENT_ID` = the App’s **Client ID**, from its settings page.
+
+If you bootstrapped with a fine-grained PAT instead, the sync still needs a GitHub App.
+Create and install one as in step 1, with **Contents**, **Pull requests** and
+**Workflows: write**, then set its `APP_CLIENT_ID` variable and `APP_PRIVATE_KEY` secret.
 
 If the variable or the secret is missing, the sync fails with an error naming which one.
 To check the setup, run *Actions → 🔄 Template Sync → Run workflow*.
@@ -329,9 +334,16 @@ on the instance repo**.
 ### The weekly template sync fails
 
 The run’s first job names any missing `APP_CLIENT_ID` variable or `APP_PRIVATE_KEY`
-secret. If both are set and the **Generate GitHub App token** step fails, the App is
-missing **Workflows: write** or **Pull requests: write**, or is not installed on this
-repo. See [Let the same App run the weekly template sync](#2-let-the-same-app-run-the-weekly-template-sync).
+secret. If both are set and the **Generate GitHub App token** step fails, one of these
+is wrong:
+
+- `APP_CLIENT_ID` is not the App’s Client ID, or `APP_PRIVATE_KEY` is malformed or
+  belongs to a different App.
+- The App is missing **Contents: write**, **Workflows: write** or
+  **Pull requests: write**.
+- The App is not installed on this repo.
+
+See [Let the same App run the weekly template sync](#2-let-the-same-app-run-the-weekly-template-sync).
 
 ### It refuses to run in the template repo
 
