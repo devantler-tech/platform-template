@@ -227,4 +227,4 @@ right-sized, and the hetzner overlay opts out of kubevirt/cdi to free
 - [DR runbook](./runbook.md) — what to do when an alert fires, and restore
 - [Velero + CNPG](./velero-cnpg.md) — the systems whose health is checked
 - [restore-drill.md](./restore-drill.md) — CI validation of the stack
-- [HA primitives](../../README.md) — cluster environments and topology
+- [HA primitives](../ARCHITECTURE.md#clusters) — cluster environments and topology
