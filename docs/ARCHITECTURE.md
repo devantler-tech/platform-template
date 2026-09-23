@@ -152,7 +152,8 @@ graph TB
 The Flux Kustomizations live in [`k8s/clusters/base/`](../k8s/clusters/base) with
 sentinel `__CLUSTER__` / `__PROVIDER__` values in `spec.path`. Each
 `k8s/clusters/<cluster>/` overlay patches the `cluster-meta` ConfigMap with its
-`cluster_name` / `provider` and uses kustomize `replacements:` to rewrite those
-sentinels. Only the per-cluster `bootstrap/` directory holds cluster-specific
-manifests. See [`TEMPLATING.md`](TEMPLATING.md) for the exact set of inputs a new
+`cluster_name` / `provider`, uses kustomize `replacements:` to rewrite those
+sentinels, and can patch other settings for that cluster, such as longer timeouts
+on the local cluster. Besides the overlay's own `kustomization.yaml`, only the
+per-cluster `bootstrap/` directory holds cluster-specific manifests. See [`TEMPLATING.md`](TEMPLATING.md) for the exact set of inputs a new
 instance customizes.
