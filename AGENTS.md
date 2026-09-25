@@ -228,10 +228,9 @@ disable a check); begin every PR/issue/comment with
 every instance via template-sync, so favour additive, backward-compatible edits to
 shared plumbing and keep the scaffold deployable. Never commit plaintext secrets,
 real Age keys, real emails/domains, or instance-specific values — use placeholders
-(`<INSTANCE_AGE_PUBLIC_KEY>`, `example.com`, `admin@example.com`). SHA-pin any
-third-party GitHub Action (per `zizmor.yml`: `actions/*` and `github/*` may
-ref-pin; `devantler-tech/*` and everything else need a full 40-character commit
-hash). First-party references are no exception: a branch or floating tag lets a
+(`<INSTANCE_AGE_PUBLIC_KEY>`, `example.com`, `admin@example.com`). Pin every GitHub
+Action to a full 40-character commit hash, `actions/*` and `github/*` included
+(`zizmor.yml` enforces it). First-party references are no exception: a branch or floating tag lets a
 signed artifact be produced from an arbitrary revision of our own publish
 workflows.
 
