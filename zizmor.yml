@@ -2,8 +2,6 @@ rules:
   unpinned-uses:
     config:
       policies:
-        actions/*: ref-pin
-        github/*: ref-pin
         # First-party actions and reusable workflows must be pinned to a commit,
         # not merely to a ref: a branch or floating tag lets a signed artifact be
         # produced from an arbitrary revision of our own publish workflows.
