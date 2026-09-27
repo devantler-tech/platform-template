@@ -472,6 +472,22 @@ grafana_enabled() {
       .spec.values.grafana.enabled] | map(tostring) | join(",")'
 }
 
+# Counts the network rules that exist only to serve the UIs: the auth proxy's egress to
+# the monitoring namespace, and the monitoring namespace's ingress from the auth proxy
+# and from the Gateway to Grafana's port.
+kps_ui_network_rule_count() {
+  local rendered_path="$1"
+
+  yq eval-all -o=json '.' "${rendered_path}" |
+    jq -s '
+      ([.[] | select(type == "object" and .kind == "CiliumNetworkPolicy" and .metadata.namespace == "oauth2-proxy" and .metadata.name == "allow-auth-proxy") |
+        .spec.egress[]? | select(any(.toEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "monitoring"))] | length) +
+      ([.[] | select(type == "object" and .kind == "CiliumNetworkPolicy" and .metadata.namespace == "monitoring" and .metadata.name == "allow-monitoring") |
+        .spec.ingress[]? |
+        select(any(.fromEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "oauth2-proxy") or
+               any(.toPorts[]?.ports[]?; .port == "3000"))] | length)'
+}
+
 # Verifies the Grafana, Prometheus and Alertmanager UI surfaces for one profile.
 # expected_routes is 1 when the UIs are published (default) and 0 when retired (Coroot).
 assert_kps_ui_surfaces() {
@@ -487,6 +503,10 @@ assert_kps_ui_surfaces() {
   assert_resource_count "${infrastructure_path}" ExternalSecret monitoring grafana-oidc "${expected_routes}"
   if [[ "$(grafana_dex_redirect_count "${controllers_path}")" != "${expected_routes}" ]]; then
     echo "expected ${expected_routes} Dex redirect(s) for Grafana in ${controllers_path}" >&2
+    return 1
+  fi
+  if [[ "$(kps_ui_network_rule_count "${controllers_path}")" != "$((expected_routes * 3))" ]]; then
+    echo "expected $((expected_routes * 3)) UI-only network rule(s) for the kube-prometheus-stack UIs in ${controllers_path}" >&2
     return 1
   fi
   if [[ "$(grafana_enabled "${controllers_path}")" != "${expected_grafana}" ]]; then
@@ -1351,7 +1371,8 @@ for documented_heartbeat_boundary in \
   "watch every \`Kustomization\`" \
   "default and local Coroot profiles render no Slack" \
   "\`kube-prometheus-stack\` remains transitional for Watchdog" \
-  "Alertmanager web UIs are"; do
+  "Alertmanager web UIs are" \
+  "port-forward svc/kube-prometheus-stack-alertmanager 9093"; do
   if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
     echo "alerting guide does not retain heartbeat boundary: ${documented_heartbeat_boundary}" >&2
     exit 1

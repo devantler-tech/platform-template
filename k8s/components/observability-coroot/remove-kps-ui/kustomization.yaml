@@ -3,7 +3,7 @@ apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 # Coroot is the observability UI in these profiles, so the Grafana, Prometheus
 # and Alertmanager web UIs are retired here, together with every route, SSO
-# redirect and credential that exists only to serve them. Prometheus and
+# redirect, credential and network path that exists only to serve them. Prometheus and
 # Alertmanager keep running: Watchdog and the remaining platform-critical rules
 # still alert through them. Targets absent from a layer are ignored. List this
 # component after remove-opencost-references, whose auth-proxy output it tests.
@@ -175,3 +175,60 @@ patches:
                   servers:
                     - url: >-
                         http://coroot-coroot.observability.svc.cluster.local:8080
+  # Close the network paths that served only the retired UIs: Grafana's Gateway ingress
+  # and the auth proxy's reach into Prometheus and Alertmanager. Removed highest index
+  # first, and each removal first tests the exact rule it expects to find there.
+  - target:
+      group: cilium.io
+      version: v2
+      kind: CiliumNetworkPolicy
+      name: allow-monitoring
+      namespace: monitoring
+    patch: |-
+      - op: test
+        path: /spec/ingress/2
+        value:
+          fromEntities: [ingress, host]
+          toPorts:
+            - ports:
+                - port: "3000"
+                  protocol: TCP
+      - op: remove
+        path: /spec/ingress/2
+      - op: test
+        path: /spec/ingress/1
+        value:
+          fromEndpoints:
+            - matchLabels:
+                k8s:io.kubernetes.pod.namespace: oauth2-proxy
+          toPorts:
+            - ports:
+                - port: "9090"
+                  protocol: TCP
+                - port: "9093"
+                  protocol: TCP
+      - op: remove
+        path: /spec/ingress/1
+  - target:
+      group: cilium.io
+      version: v2
+      kind: CiliumNetworkPolicy
+      name: allow-auth-proxy
+      namespace: oauth2-proxy
+    patch: |-
+      - op: test
+        path: /spec/egress/2
+        value:
+          toEndpoints:
+            - matchLabels:
+                k8s:io.kubernetes.pod.namespace: monitoring
+          toPorts:
+            - ports:
+                - port: "3000"
+                  protocol: TCP
+                - port: "9090"
+                  protocol: TCP
+                - port: "9093"
+                  protocol: TCP
+      - op: remove
+        path: /spec/egress/2

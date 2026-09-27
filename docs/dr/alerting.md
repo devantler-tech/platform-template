@@ -206,6 +206,16 @@ ping URLs into `alertmanager_heartbeat_url` and `cluster_heartbeat_url` respecti
 
 All four are behind GitHub SSO (oauth2-proxy, restricted to the operator).
 
+**On a Coroot profile** those web pages do not exist, and there is no Loki or OpenCost:
+
+- **Investigate** in Coroot at `https://observability.${domain}`: service health, logs,
+  traces and incidents.
+- **Silence or inspect a firing alert**: Alertmanager still sends the remaining alerts, so
+  reach it through the cluster API with your own kubeconfig. Run
+  `kubectl -n monitoring port-forward svc/kube-prometheus-stack-alertmanager 9093`, open
+  `http://localhost:9093` and use Silences → New. For Prometheus, use
+  `svc/kube-prometheus-stack-prometheus 9090` the same way.
+
 ## Resource footprint (prod)
 
 | Component      | Requests          | Limits      |
