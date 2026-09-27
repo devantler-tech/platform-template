@@ -8,6 +8,9 @@ resources:
   - minio/
   - namespace-local-path-storage.yaml
   - cilium-network-policy-local-path-storage.yaml
+components:
+  - ../../../../components/helmrelease-flux-defaults/
+  - ../../../../components/helmrelease-drift-detection/
 patches:
   - target:
       kind: HelmRelease

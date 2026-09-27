@@ -5,6 +5,9 @@ resources:
   - ../../../bases/apps/headlamp/
   - ../../../bases/apps/homepage/
   - ../../../bases/apps/whoami/
+components:
+  - ../../../components/helmrelease-flux-defaults/
+  - ../../../components/helmrelease-drift-detection/
 patches:
   - target:
       kind: HelmRelease

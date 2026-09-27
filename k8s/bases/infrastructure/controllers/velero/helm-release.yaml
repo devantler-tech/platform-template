@@ -17,13 +17,8 @@ spec:
         name: vmware-tanzu
   install:
     crds: CreateReplace
-    remediation:
-      retries: -1
   upgrade:
     crds: CreateReplace
-    remediation:
-      retries: -1
-      remediateLastFailure: true
   timeout: 15m
   # https://github.com/vmware-tanzu/helm-charts/blob/main/charts/velero/values.yaml
   values:
@@ -36,13 +31,11 @@ spec:
         volumeMounts:
           - mountPath: /target
             name: plugins
-
     # Mount our SOPS-derived R2 credentials secret instead of the chart's
     # generated one. The chart only consults it; it never writes to it.
     credentials:
       useSecret: true
       existingSecret: velero-r2-credentials
-
     # Cloudflare R2 backup target. Bucket + endpoint come from the shared
     # variables-base ConfigMap; prefix is reused per consumer (PR #3).
     configuration:
@@ -62,7 +55,6 @@ spec:
       defaultVolumesToFsBackup: true
       uploaderType: kopia
       features: ""
-
     # Run Velero itself with HA primitives matching the rest of the
     # operator tier (PR #2b). Server is leader-elected so 2 replicas =
     # instant failover, not extra capacity.
@@ -85,7 +77,6 @@ spec:
             app.kubernetes.io/instance: velero
     strategy:
       type: Recreate
-
     # Node agent: DaemonSet, runs the Kopia uploader on every node that has
     # PVCs. Defaults are sane; just confirm rolling update.
     deployNodeAgent: true
@@ -94,7 +85,6 @@ spec:
         type: RollingUpdate
         rollingUpdate:
           maxUnavailable: 1
-
     # Daily backup of every namespace that has PVCs. 14-day retention
     # matches the 24h RPO target. Long-term retention is handled by R2
     # object lock + lifecycle, not by Velero, so a corrupted controller
@@ -114,10 +104,8 @@ spec:
             - velero
           snapshotMoveData: true
           defaultVolumesToFsBackup: true
-
     metrics:
       enabled: true
-
     resources:
       requests:
         cpu: 25m

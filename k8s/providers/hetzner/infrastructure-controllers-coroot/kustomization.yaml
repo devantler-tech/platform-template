@@ -8,6 +8,8 @@ resources:
   # every controller, so it can report a controller readiness failure itself.
   - flux-notifications/
 components:
+  - ../../../components/helmrelease-flux-defaults/
+  - ../../../components/helmrelease-drift-detection/
   - ../../../components/observability-coroot/remove-controllers-loki-alloy/
   - ../../../components/observability-coroot/remove-controller-opencost/
   - ../../../components/observability-coroot/remove-opencost-references/

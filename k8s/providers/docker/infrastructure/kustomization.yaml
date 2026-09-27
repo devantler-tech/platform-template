@@ -4,3 +4,6 @@ kind: Kustomization
 resources:
   - ../../../bases/infrastructure/
   - cluster-issuers/
+components:
+  - ../../../components/helmrelease-flux-defaults/
+  - ../../../components/helmrelease-drift-detection/

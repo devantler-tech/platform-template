@@ -5,6 +5,8 @@ resources:
   - ../infrastructure/
   - ../../../bases/infrastructure/coroot/
 components:
+  - ../../../components/helmrelease-flux-defaults/
+  - ../../../components/helmrelease-drift-detection/
   - ../../../components/observability-coroot/allow-host-access/
   - ../../../components/observability-coroot/isolate-heartbeat/
   - ../../../components/observability-coroot/remove-opencost-references/

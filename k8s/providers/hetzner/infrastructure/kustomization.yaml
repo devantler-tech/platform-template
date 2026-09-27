@@ -5,6 +5,9 @@ resources:
   - ../../../bases/infrastructure/
   - cluster-issuers/
   - vault-seed/
+components:
+  - ../../../components/helmrelease-flux-defaults/
+  - ../../../components/helmrelease-drift-detection/
 patches:
   - path: patches/attach-hcloud-load-balancer.yaml
     target:

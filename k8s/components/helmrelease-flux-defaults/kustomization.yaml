@@ -1,0 +1,30 @@
+---
+# Flux reliability defaults for every HelmRelease.
+#
+# The flux best-practice cluster policy requires every HelmRelease to retry a
+# failed install or upgrade and to remediate the last failure. The block is the
+# same for every release, so it is defined once here and merged into each
+# HelmRelease of every layer that lists this component.
+#
+# Strategic merge, not JSON6902: it creates spec.install and spec.upgrade when
+# absent and leaves sibling fields (install.crds, upgrade.crds, upgrade.force)
+# untouched.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target:
+      group: helm.toolkit.fluxcd.io
+      kind: HelmRelease
+    patch: |
+      apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: not-used
+      spec:
+        install:
+          remediation:
+            retries: -1
+        upgrade:
+          remediation:
+            retries: -1
+            remediateLastFailure: true
