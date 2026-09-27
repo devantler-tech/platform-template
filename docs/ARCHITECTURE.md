@@ -100,10 +100,16 @@ The cluster configuration lives under `k8s/*`:
   - [`infrastructure`](../k8s/bases/infrastructure) — infrastructure components.
   - [`apps`](../k8s/bases/apps) — the demo applications.
   - [`bootstrap`](../k8s/bases/bootstrap) — the foundational **bootstrap layer**: shared substitution variables (`variables-base` ConfigMap + SOPS-encrypted Secret) and cluster-scoped PriorityClasses, reconciled by the `bootstrap` Flux Kustomization before everything that `dependsOn` it.
-- [`components/`](../k8s/components) — shared opt-in Kustomize components. Only the opt-in provider
-  profiles use them, to switch to [Coroot](TEMPLATING.md#select-the-transitional-coroot-profile) or
-  add the [recommended-labels policy](TEMPLATING.md#add-recommended-workload-labels-at-admission);
-  the default paths use none of them.
+- [`components/`](../k8s/components) — shared Kustomize components.
+  - `helmrelease-flux-defaults` and `helmrelease-drift-detection` are listed by every
+    kustomization that owns a HelmRelease, so each base carries them to every consumer.
+    They set the install/upgrade retry policy once, and turn on drift
+    detection so Flux restores a chart resource that is deleted or edited out of band. A new
+    HelmRelease inherits both; do not repeat the remediation block in it.
+  - The rest are opt-in. Only the opt-in provider profiles use them, to switch to
+    [Coroot](TEMPLATING.md#select-the-transitional-coroot-profile) or add the
+    [recommended-labels policy](TEMPLATING.md#add-recommended-workload-labels-at-admission);
+    the default paths use none of them.
 
 ### Kustomize overlay flow
 

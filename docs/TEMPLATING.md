@@ -252,9 +252,10 @@ See [`.github/workflows/`](../.github/workflows) for the exact names in use.
   and the rest of the controller set.
 - [`k8s/bases/apps/`](../k8s/bases/apps) — the demo applications (homepage, whoami,
   headlamp).
-- [`k8s/components/`](../k8s/components) — shared opt-in transformations used by
-  provider profiles, such as removing OpenCost across controller, infrastructure,
-  and app layers.
+- [`k8s/components/`](../k8s/components) — shared transformations: the HelmRelease
+  retry defaults and drift detection every HelmRelease-owning kustomization lists, and opt-in
+  profile transformations such as removing OpenCost across controller,
+  infrastructure, and app layers.
 - [`k8s/providers/{docker,hetzner}/`](../k8s/providers) — provider-specific assembly
   of the bases.
 

@@ -11,13 +11,6 @@ spec:
       namespace: monitoring
   interval: 2m
   timeout: 10m
-  install:
-    remediation:
-      retries: -1
-  upgrade:
-    remediation:
-      retries: -1
-      remediateLastFailure: true
   chart:
     spec:
       chart: opencost
@@ -77,7 +70,6 @@ spec:
         external:
           enabled: true
           url: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
-
       # Hetzner Cloud custom pricing — CX33 monthly cap decomposed into
       # per-resource-unit USD costs. CX33 spec verified live with
       # `kubectl get nodes`: 4 vCPU, 7916176 KiB RAM (8 GB nominal), 80 GB NVMe.
@@ -126,7 +118,6 @@ spec:
           zoneNetworkEgress: 0.001164
           regionNetworkEgress: 0.001164
           internetNetworkEgress: 0.001164
-
       exporter:
         replicas: 1
         resources:
@@ -142,7 +133,6 @@ spec:
           # still well under the chart's 1Gi default.
           limits:
             memory: 512Mi
-
       ui:
         enabled: true
         securityContext:
@@ -153,7 +143,6 @@ spec:
             memory: 55Mi
           limits:
             memory: 128Mi
-
       metrics:
         serviceMonitor:
           enabled: true

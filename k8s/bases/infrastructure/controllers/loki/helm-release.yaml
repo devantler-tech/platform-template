@@ -13,13 +13,6 @@ spec:
       namespace: monitoring
   interval: 5m
   timeout: 10m
-  install:
-    remediation:
-      retries: -1
-  upgrade:
-    remediation:
-      retries: -1
-      remediateLastFailure: true
   chart:
     spec:
       chart: loki

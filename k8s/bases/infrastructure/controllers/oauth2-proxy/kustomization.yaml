@@ -9,3 +9,6 @@ resources:
   - reference-grant.yaml
   - cilium-network-policy.yaml
   - cilium-network-policy-default-deny.yaml
+components:
+  - ../../../../components/helmrelease-flux-defaults/
+  - ../../../../components/helmrelease-drift-detection/

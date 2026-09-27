@@ -6,3 +6,6 @@ resources:
   - helm-release.yaml
   - cilium-network-policy.yaml
   - secret-velero-r2-credentials.yaml
+components:
+  - ../../../../components/helmrelease-flux-defaults/
+  - ../../../../components/helmrelease-drift-detection/

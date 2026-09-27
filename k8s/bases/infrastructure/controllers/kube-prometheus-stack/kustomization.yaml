@@ -8,3 +8,6 @@ resources:
   - http-route-prometheus.yaml
   - http-route-alertmanager.yaml
   - cilium-network-policy.yaml
+components:
+  - ../../../../components/helmrelease-flux-defaults/
+  - ../../../../components/helmrelease-drift-detection/

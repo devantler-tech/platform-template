@@ -9,3 +9,6 @@ resources:
   - helm-repository.yaml
   - helm-release.yaml
   - http-route.yaml
+components:
+  - ../../../../components/helmrelease-flux-defaults/
+  - ../../../../components/helmrelease-drift-detection/

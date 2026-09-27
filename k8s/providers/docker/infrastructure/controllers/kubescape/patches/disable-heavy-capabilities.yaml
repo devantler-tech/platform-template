@@ -11,13 +11,8 @@ spec:
   # success immediately after applying resources.
   install:
     disableWait: true
-    remediation:
-      retries: -1
   upgrade:
     disableWait: true
-    remediation:
-      retries: -1
-      remediateLastFailure: true
   values:
     capabilities:
       # eBPF-based runtime detection is unavailable on Docker-provider nodes.

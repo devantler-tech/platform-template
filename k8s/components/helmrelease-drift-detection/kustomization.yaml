@@ -1,0 +1,76 @@
+---
+# Drift detection for every HelmRelease.
+#
+# Without it, Flux's helm-controller re-applies a chart's resources only when the
+# chart or its values change. A Helm-rendered resource that is deleted or edited
+# out of band stays broken while the HelmRelease still reports Ready. With
+# `driftDetection.mode: enabled`, the controller restores deleted resources and
+# reverts out-of-band edits on every reconcile.
+#
+# Ignored fields are owned by other controllers at runtime. Enforcing the chart's
+# value would make Flux fight them and report DriftDetected on every reconcile:
+#   * /spec/replicas (Deployment, StatefulSet): autoscalers and progressive
+#     delivery set it.
+#   * /spec/template (Deployment, StatefulSet, DaemonSet): the Kyverno mutate
+#     policies in bases/infrastructure/cluster-policies (resource defaults,
+#     security context, anti-affinity, topology spread, service-account token
+#     automount) rewrite the pod template on admission, so the rendered spec
+#     never matches the live one. A deleted workload is still drift and is
+#     restored; only field-level edits to a running pod template are not reverted
+#     until the next chart or values change.
+#   * /metadata/labels (Deployment, StatefulSet, DaemonSet): the optional
+#     recommended-labels policy adds labels to workloads that lack them.
+#   * Webhook configurations' /webhooks, APIService /spec/caBundle and CRD
+#     conversion caBundle: cert-manager and operators inject CA bundles at runtime.
+#     Ignore paths are JSON Pointers, which cannot select one field in every array
+#     entry, so the whole webhooks list is ignored rather than each entry's CA
+#     bundle by index. A deleted webhook configuration is still drift and is
+#     restored.
+#
+# Listed as a component by every kustomization that owns a HelmRelease, so each
+# base carries its defaults to every consumer, not only to the provider layers.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target:
+      group: helm.toolkit.fluxcd.io
+      kind: HelmRelease
+    patch: |
+      - op: add
+        path: /spec/driftDetection
+        value:
+          mode: enabled
+          ignore:
+            - target:
+                kind: Deployment
+              paths:
+                - /spec/replicas
+                - /spec/template
+                - /metadata/labels
+            - target:
+                kind: StatefulSet
+              paths:
+                - /spec/replicas
+                - /spec/template
+                - /metadata/labels
+            - target:
+                kind: DaemonSet
+              paths:
+                - /spec/template
+                - /metadata/labels
+            - target:
+                kind: ValidatingWebhookConfiguration
+              paths:
+                - /webhooks
+            - target:
+                kind: MutatingWebhookConfiguration
+              paths:
+                - /webhooks
+            - target:
+                kind: APIService
+              paths:
+                - /spec/caBundle
+            - target:
+                kind: CustomResourceDefinition
+              paths:
+                - /spec/conversion/webhook/clientConfig/caBundle
