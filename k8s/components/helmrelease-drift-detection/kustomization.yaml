@@ -22,8 +22,13 @@
 #     recommended-labels policy adds labels to workloads that lack them.
 #   * Webhook configurations' /webhooks, APIService /spec/caBundle and CRD
 #     conversion caBundle: cert-manager and operators inject CA bundles at runtime.
+#     Ignore paths are JSON Pointers, which cannot select one field in every array
+#     entry, so the whole webhooks list is ignored rather than each entry's CA
+#     bundle by index. A deleted webhook configuration is still drift and is
+#     restored.
 #
-# Listed as a component by every provider layer that renders HelmReleases.
+# Listed as a component by every kustomization that owns a HelmRelease, so each
+# base carries its defaults to every consumer, not only to the provider layers.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 patches:

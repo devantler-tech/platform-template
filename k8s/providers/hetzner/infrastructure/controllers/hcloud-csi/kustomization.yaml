@@ -5,3 +5,6 @@ resources:
   - secret-hcloud.yaml
   - helm-release.yaml
   - helm-repository.yaml
+components:
+  - ../../../../../components/helmrelease-flux-defaults/
+  - ../../../../../components/helmrelease-drift-detection/

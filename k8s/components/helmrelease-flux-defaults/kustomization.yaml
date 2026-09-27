@@ -4,7 +4,7 @@
 # The flux best-practice cluster policy requires every HelmRelease to retry a
 # failed install or upgrade and to remediate the last failure. The block is the
 # same for every release, so it is defined once here and merged into each
-# HelmRelease of every layer that lists this component.
+# HelmRelease of every kustomization that lists this component.
 #
 # Strategic merge, not JSON6902: it creates spec.install and spec.upgrade when
 # absent and leaves sibling fields (install.crds, upgrade.crds, upgrade.force)

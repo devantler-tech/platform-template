@@ -3,3 +3,6 @@ kind: Kustomization
 resources:
   - helm-release.yaml
   - reference-grant.yaml
+components:
+  - ../../../../components/helmrelease-flux-defaults/
+  - ../../../../components/helmrelease-drift-detection/

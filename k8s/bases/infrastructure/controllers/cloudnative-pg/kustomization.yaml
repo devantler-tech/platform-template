@@ -6,3 +6,6 @@ resources:
   - helm-repository.yaml
   - pod-disruption-budget.yaml
   - cilium-network-policy.yaml
+components:
+  - ../../../../components/helmrelease-flux-defaults/
+  - ../../../../components/helmrelease-drift-detection/

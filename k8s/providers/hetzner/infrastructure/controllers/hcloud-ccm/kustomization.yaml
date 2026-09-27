@@ -4,3 +4,6 @@ kind: Kustomization
 resources:
   - helm-release.yaml
   - pod-disruption-budget.yaml
+components:
+  - ../../../../../components/helmrelease-flux-defaults/
+  - ../../../../../components/helmrelease-drift-detection/

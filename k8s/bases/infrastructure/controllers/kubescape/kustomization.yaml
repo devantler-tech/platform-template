@@ -5,3 +5,6 @@ resources:
   - helm-release.yaml
   - helm-repository.yaml
   - cilium-network-policy.yaml
+components:
+  - ../../../../components/helmrelease-flux-defaults/
+  - ../../../../components/helmrelease-drift-detection/

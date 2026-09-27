@@ -5,6 +5,4 @@ resources:
   - ../apps/
   - ../../../bases/apps/cluster-heartbeat/
 components:
-  - ../../../components/helmrelease-flux-defaults/
-  - ../../../components/helmrelease-drift-detection/
   - ../../../components/observability-coroot/remove-opencost-references/

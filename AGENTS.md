@@ -58,7 +58,8 @@ k8s/                    # All Kubernetes manifests
                         #   cluster-policies/, external-secrets/, alerts/, vault-*/ (OpenBao), etc.
     apps/               # App deployments — whoami, homepage, headlamp
   components/           # Shared Kustomize components: HelmRelease defaults and drift detection
-                        #   (every provider layer), plus the opt-in profile transformations
+                        #   (listed by every HelmRelease-owning kustomization), plus the
+                        #   opt-in profile transformations
   providers/            # Provider-specific overlays (TEMPLATE-OWNED)
     docker/             # Local/CI provider (e.g. disables SPIRE mutual auth)
     hetzner/            # Production provider

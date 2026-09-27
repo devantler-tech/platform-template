@@ -41,9 +41,6 @@ resources:
   - kubelet-serving-cert-approver/
   - longhorn/
   - origin-ca-issuer/
-components:
-  - ../../../../components/helmrelease-flux-defaults/
-  - ../../../../components/helmrelease-drift-detection/
 patches:
   - path: openbao/patches/store-data-on-hcloud.yaml
   - path: kube-prometheus-stack/patches/store-tsdb-on-hcloud.yaml
