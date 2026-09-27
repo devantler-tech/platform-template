@@ -87,6 +87,8 @@ The default and local Coroot profiles render no Slack `Provider`, `Alert`, or
 webhook `Secret`.
 `kube-prometheus-stack` remains transitional for Watchdog and the remaining
 metric-backed alert rules until those paths are migrated separately.
+In the Coroot profiles its Grafana, Prometheus and Alertmanager web UIs are
+retired; the alerts themselves still run.
 
 Recommended monitor: [healthchecks.io](https://healthchecks.io) (free,
 open-source, native Slack integration). Keep two distinct checks: the existing

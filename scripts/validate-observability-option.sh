@@ -451,6 +451,50 @@ assert_watchdog_enabled() {
   fi
 }
 
+# Counts the Dex public-client redirect that exists only for Grafana's native OIDC login.
+grafana_dex_redirect_count() {
+  local rendered_path="$1"
+
+  yq eval-all -o=json '.' "${rendered_path}" |
+    jq -s '[.[] |
+      select(type == "object" and .kind == "HelmRelease" and .metadata.namespace == "dex" and .metadata.name == "dex") |
+      .spec.values.config.staticClients[]?.redirectURIs[]? |
+      select(. == "https://grafana.${domain}/login/generic_oauth")] | length'
+}
+
+# Reads whether the kube-prometheus-stack release still deploys Grafana.
+grafana_enabled() {
+  local rendered_path="$1"
+
+  yq eval-all -o=json '.' "${rendered_path}" |
+    jq -sr '[.[] |
+      select(type == "object" and .kind == "HelmRelease" and .metadata.namespace == "monitoring" and .metadata.name == "kube-prometheus-stack") |
+      .spec.values.grafana.enabled] | map(tostring) | join(",")'
+}
+
+# Verifies the Grafana, Prometheus and Alertmanager UI surfaces for one profile.
+# expected_routes is 1 when the UIs are published (default) and 0 when retired (Coroot).
+assert_kps_ui_surfaces() {
+  local controllers_path="$1"
+  local infrastructure_path="$2"
+  local expected_routes="$3"
+  local expected_grafana="$4"
+  local route
+
+  for route in grafana prometheus alertmanager; do
+    assert_resource_count "${controllers_path}" HTTPRoute monitoring "${route}" "${expected_routes}"
+  done
+  assert_resource_count "${infrastructure_path}" ExternalSecret monitoring grafana-oidc "${expected_routes}"
+  if [[ "$(grafana_dex_redirect_count "${controllers_path}")" != "${expected_routes}" ]]; then
+    echo "expected ${expected_routes} Dex redirect(s) for Grafana in ${controllers_path}" >&2
+    return 1
+  fi
+  if [[ "$(grafana_enabled "${controllers_path}")" != "${expected_grafana}" ]]; then
+    echo "expected kube-prometheus-stack grafana.enabled=${expected_grafana} in ${controllers_path}" >&2
+    return 1
+  fi
+}
+
 # Verifies the production Coroot profile's exact event-driven Flux alert path.
 assert_flux_notification_contract() {
   local rendered_path="$1"
@@ -693,6 +737,8 @@ assert_auth_proxy_with_coroot() {
     yq eval-all -o=json 'select(.kind == "ConfigMap" and .metadata.namespace == "oauth2-proxy" and .metadata.name == "auth-proxy-config") | .data."dynamic.yaml" | from_yaml' "${default_rendered_path}" |
       jq -S -c '
         del(.http.routers.opencost, .http.services.opencost) |
+        del(.http.routers.prometheus, .http.services.prometheus) |
+        del(.http.routers.alertmanager, .http.services.alertmanager) |
         .http.routers.coroot = {
           rule: "Host(`observability.${domain}`)",
           entryPoints: ["web"],
@@ -711,7 +757,7 @@ assert_auth_proxy_with_coroot() {
       jq -S -c '.'
   )"
   if [[ "${actual}" != "${expected}" ]]; then
-    echo "opt-in auth-proxy config must replace OpenCost with the authenticated Coroot UI" >&2
+    echo "opt-in auth-proxy config must replace OpenCost, Prometheus and Alertmanager with the authenticated Coroot UI" >&2
     return 1
   fi
 }
@@ -1042,6 +1088,14 @@ assert_heartbeat_staged_after_policy_exclusion "${hetzner_controllers}" "${hetzn
 assert_auth_proxy_with_coroot "${local_controllers_default}" "${docker_controllers}"
 assert_auth_proxy_with_coroot "${prod_controllers_default}" "${hetzner_controllers}"
 
+# Coroot is the observability UI in the Coroot profiles, so the Grafana, Prometheus and
+# Alertmanager UIs, their routes, SSO redirect and OIDC secret are retired there. The
+# default profiles keep every one of them.
+assert_kps_ui_surfaces "${local_controllers_default}" "${local_infrastructure_default}" 1 true
+assert_kps_ui_surfaces "${prod_controllers_default}" "${prod_infrastructure_default}" 1 true
+assert_kps_ui_surfaces "${docker_controllers}" "${docker_infrastructure}" 0 false
+assert_kps_ui_surfaces "${hetzner_controllers}" "${hetzner_infrastructure}" 0 false
+
 for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 1
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
@@ -1244,6 +1298,8 @@ for documented_boundary in \
   "keep Watchdog unchanged" \
   "preserves a dead-man signal" \
   "keeps kube-prometheus-stack" \
+  "it removes the Grafana, Prometheus and Alertmanager" \
+  "Prometheus and Alertmanager keep running for alerting" \
   "Cost allocation is therefore unavailable" \
   "reuses the same \`alertmanager_webhook_url\`" \
   "production Coroot profile to report failed" \
@@ -1294,7 +1350,8 @@ for documented_heartbeat_boundary in \
   "\`FluxHelmReleaseNotReady\`" \
   "watch every \`Kustomization\`" \
   "default and local Coroot profiles render no Slack" \
-  "\`kube-prometheus-stack\` remains transitional for Watchdog"; do
+  "\`kube-prometheus-stack\` remains transitional for Watchdog" \
+  "Alertmanager web UIs are"; do
   if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
     echo "alerting guide does not retain heartbeat boundary: ${documented_heartbeat_boundary}" >&2
     exit 1

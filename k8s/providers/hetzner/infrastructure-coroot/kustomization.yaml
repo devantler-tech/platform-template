@@ -9,6 +9,7 @@ components:
   - ../../../components/observability-coroot/allow-host-access/
   - ../../../components/observability-coroot/isolate-heartbeat/
   - ../../../components/observability-coroot/remove-opencost-references/
+  - ../../../components/observability-coroot/remove-kps-ui/
 patches:
   - path: patches/add-webhook-alerting.yaml
     target:
