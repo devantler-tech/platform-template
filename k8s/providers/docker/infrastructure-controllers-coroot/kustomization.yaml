@@ -8,3 +8,4 @@ components:
   - ../../../components/observability-coroot/remove-controllers-loki-alloy/
   - ../../../components/observability-coroot/remove-controller-opencost/
   - ../../../components/observability-coroot/remove-opencost-references/
+  - ../../../components/observability-coroot/remove-kps-ui/

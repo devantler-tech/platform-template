@@ -1,0 +1,234 @@
+---
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# Coroot is the observability UI in these profiles, so the Grafana, Prometheus
+# and Alertmanager web UIs are retired here, together with every route, SSO
+# redirect, credential and network path that exists only to serve them. Prometheus and
+# Alertmanager keep running: Watchdog and the remaining platform-critical rules
+# still alert through them. Targets absent from a layer are ignored. List this
+# component after remove-opencost-references, whose auth-proxy output it tests.
+patches:
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: kube-prometheus-stack
+      namespace: monitoring
+    patch: |-
+      - op: test
+        path: /spec/values/grafana/enabled
+        value: true
+      - op: replace
+        path: /spec/values/grafana/enabled
+        value: false
+  - target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: HTTPRoute
+      name: grafana
+      namespace: monitoring
+    patch: |
+      $patch: delete
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: grafana
+        namespace: monitoring
+  - target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: HTTPRoute
+      name: prometheus
+      namespace: monitoring
+    patch: |
+      $patch: delete
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: prometheus
+        namespace: monitoring
+  - target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: HTTPRoute
+      name: alertmanager
+      namespace: monitoring
+    patch: |
+      $patch: delete
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: alertmanager
+        namespace: monitoring
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: grafana-oidc
+      namespace: monitoring
+    patch: |
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: grafana-oidc
+        namespace: monitoring
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: dex
+      namespace: dex
+    patch: |-
+      - op: test
+        path: /spec/values/config/staticClients/0/redirectURIs/4
+        value: "https://grafana.${domain}/login/generic_oauth"
+      - op: remove
+        path: /spec/values/config/staticClients/0/redirectURIs/4
+  - target:
+      version: v1
+      kind: ConfigMap
+      name: auth-proxy-config
+      namespace: oauth2-proxy
+    patch: |
+      # The value remove-opencost-references leaves behind. Kustomize stores it
+      # without its trailing newline, so this test uses a stripped block (|-).
+      - op: test
+        path: /data/dynamic.yaml
+        value: |-
+          http:
+            routers:
+              homepage:
+                rule: "Host(`${domain}`)"
+                entryPoints: ["web"]
+                service: homepage
+              hubble:
+                rule: "Host(`hubble.${domain}`)"
+                entryPoints: ["web"]
+                service: hubble-ui
+              prometheus:
+                rule: "Host(`prometheus.${domain}`)"
+                entryPoints: ["web"]
+                service: prometheus
+              alertmanager:
+                rule: "Host(`alertmanager.${domain}`)"
+                entryPoints: ["web"]
+                service: alertmanager
+              coroot:
+                rule: "Host(`observability.${domain}`)"
+                entryPoints: ["web"]
+                service: coroot
+            services:
+              homepage:
+                loadBalancer:
+                  servers:
+                    - url: "http://homepage.homepage.svc.cluster.local:80"
+              hubble-ui:
+                loadBalancer:
+                  servers:
+                    - url: >-
+                        http://keda-add-ons-http-interceptor-proxy.keda.svc.cluster.local:8080
+              prometheus:
+                loadBalancer:
+                  servers:
+                    - url: >-
+                        http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+              alertmanager:
+                loadBalancer:
+                  servers:
+                    - url: >-
+                        http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093
+              coroot:
+                loadBalancer:
+                  servers:
+                    - url: >-
+                        http://coroot-coroot.observability.svc.cluster.local:8080
+      - op: replace
+        path: /data/dynamic.yaml
+        value: |
+          http:
+            routers:
+              homepage:
+                rule: "Host(`${domain}`)"
+                entryPoints: ["web"]
+                service: homepage
+              hubble:
+                rule: "Host(`hubble.${domain}`)"
+                entryPoints: ["web"]
+                service: hubble-ui
+              coroot:
+                rule: "Host(`observability.${domain}`)"
+                entryPoints: ["web"]
+                service: coroot
+            services:
+              homepage:
+                loadBalancer:
+                  servers:
+                    - url: "http://homepage.homepage.svc.cluster.local:80"
+              hubble-ui:
+                loadBalancer:
+                  servers:
+                    - url: >-
+                        http://keda-add-ons-http-interceptor-proxy.keda.svc.cluster.local:8080
+              coroot:
+                loadBalancer:
+                  servers:
+                    - url: >-
+                        http://coroot-coroot.observability.svc.cluster.local:8080
+  # Close the network paths that served only the retired UIs: Grafana's Gateway ingress
+  # and the auth proxy's reach into Prometheus and Alertmanager. Removed highest index
+  # first, and each removal first tests the exact rule it expects to find there.
+  - target:
+      group: cilium.io
+      version: v2
+      kind: CiliumNetworkPolicy
+      name: allow-monitoring
+      namespace: monitoring
+    patch: |-
+      - op: test
+        path: /spec/ingress/2
+        value:
+          fromEntities: [ingress, host]
+          toPorts:
+            - ports:
+                - port: "3000"
+                  protocol: TCP
+      - op: remove
+        path: /spec/ingress/2
+      - op: test
+        path: /spec/ingress/1
+        value:
+          fromEndpoints:
+            - matchLabels:
+                k8s:io.kubernetes.pod.namespace: oauth2-proxy
+          toPorts:
+            - ports:
+                - port: "9090"
+                  protocol: TCP
+                - port: "9093"
+                  protocol: TCP
+      - op: remove
+        path: /spec/ingress/1
+  - target:
+      group: cilium.io
+      version: v2
+      kind: CiliumNetworkPolicy
+      name: allow-auth-proxy
+      namespace: oauth2-proxy
+    patch: |-
+      - op: test
+        path: /spec/egress/2
+        value:
+          toEndpoints:
+            - matchLabels:
+                k8s:io.kubernetes.pod.namespace: monitoring
+          toPorts:
+            - ports:
+                - port: "3000"
+                  protocol: TCP
+                - port: "9090"
+                  protocol: TCP
+                - port: "9093"
+                  protocol: TCP
+      - op: remove
+        path: /spec/egress/2

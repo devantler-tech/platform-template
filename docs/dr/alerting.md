@@ -87,6 +87,8 @@ The default and local Coroot profiles render no Slack `Provider`, `Alert`, or
 webhook `Secret`.
 `kube-prometheus-stack` remains transitional for Watchdog and the remaining
 metric-backed alert rules until those paths are migrated separately.
+In the Coroot profiles its Grafana, Prometheus and Alertmanager web UIs are
+retired; the alerts themselves still run.
 
 Recommended monitor: [healthchecks.io](https://healthchecks.io) (free,
 open-source, native Slack integration). Keep two distinct checks: the existing
@@ -203,6 +205,16 @@ ping URLs into `alertmanager_heartbeat_url` and `cluster_heartbeat_url` respecti
 - **Cost**: OpenCost at `https://opencost.${domain}`.
 
 All four are behind GitHub SSO (oauth2-proxy, restricted to the operator).
+
+**On a Coroot profile** those web pages do not exist, and there is no Loki or OpenCost:
+
+- **Investigate** in Coroot at `https://observability.${domain}`: service health, logs,
+  traces and incidents.
+- **Silence or inspect a firing alert**: Alertmanager still sends the remaining alerts, so
+  reach it through the cluster API with your own kubeconfig. Run
+  `kubectl -n monitoring port-forward svc/kube-prometheus-stack-alertmanager 9093`, open
+  `http://localhost:9093` and use Silences → New. For Prometheus, use
+  `svc/kube-prometheus-stack-prometheus 9090` the same way.
 
 ## Resource footprint (prod)
 
