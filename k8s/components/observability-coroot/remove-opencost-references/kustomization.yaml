@@ -334,3 +334,17 @@ patches:
         value: opencost
       - op: remove
         path: /spec/match/namespaceSelector/matchExpressions/0/values/14
+  # OpenCost's oauth2-proxy login callback on Dex's public-client, which this profile no
+  # longer routes. remove-kps-ui then removes later entries by index, so it must run after.
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: dex
+      namespace: dex
+    patch: |-
+      - op: test
+        path: /spec/values/config/staticClients/0/redirectURIs/9
+        value: "https://opencost.${domain}/oauth2/callback"
+      - op: remove
+        path: /spec/values/config/staticClients/0/redirectURIs/9

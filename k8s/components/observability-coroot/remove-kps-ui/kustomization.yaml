@@ -79,7 +79,19 @@ patches:
       kind: HelmRelease
       name: dex
       namespace: dex
+    # Prometheus and Alertmanager oauth2-proxy login callbacks first (highest index
+    # first, after remove-opencost-references took OpenCost's), then Grafana's own.
     patch: |-
+      - op: test
+        path: /spec/values/config/staticClients/0/redirectURIs/9
+        value: "https://prometheus.${domain}/oauth2/callback"
+      - op: remove
+        path: /spec/values/config/staticClients/0/redirectURIs/9
+      - op: test
+        path: /spec/values/config/staticClients/0/redirectURIs/6
+        value: "https://alertmanager.${domain}/oauth2/callback"
+      - op: remove
+        path: /spec/values/config/staticClients/0/redirectURIs/6
       - op: test
         path: /spec/values/config/staticClients/0/redirectURIs/4
         value: "https://grafana.${domain}/login/generic_oauth"
