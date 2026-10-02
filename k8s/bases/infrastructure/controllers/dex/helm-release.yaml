@@ -70,6 +70,20 @@ spec:
             - "https://budget.${domain}/oidc/callback"
             - "https://vault.${domain}/ui/vault/auth/oidc/oidc/callback"
             - "https://grafana.${domain}/login/generic_oauth"
+            # oauth2-proxy's callback on every host it fronts, so it can finish a
+            # login on the host the user started from and return them to the page
+            # they asked for. Dex matches callbacks exactly, so each host needs its
+            # own entry: scripts/tests/test-oauth2-proxy-sso-redirects.sh fails
+            # when an HTTPRoute puts a host behind oauth2-proxy without one, or
+            # when an entry outlives its route in every profile and provider. These
+            # stay after the entries above: the observability-coroot components
+            # patch this list by index.
+            - "https://${domain}/oauth2/callback"
+            - "https://alertmanager.${domain}/oauth2/callback"
+            - "https://hubble.${domain}/oauth2/callback"
+            - "https://observability.${domain}/oauth2/callback"
+            - "https://opencost.${domain}/oauth2/callback"
+            - "https://prometheus.${domain}/oauth2/callback"
           trustedPeers:
             - kubectl
         - name: kubectl

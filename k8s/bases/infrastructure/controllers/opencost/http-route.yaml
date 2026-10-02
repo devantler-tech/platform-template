@@ -21,11 +21,6 @@ spec:
     - opencost.${domain}
   rules:
     - filters:
-        - type: RequestHeaderModifier
-          requestHeaderModifier:
-            set:
-              - name: X-Auth-Request-Redirect
-                value: https://opencost.${domain}/
         - type: ResponseHeaderModifier
           responseHeaderModifier:
             set:

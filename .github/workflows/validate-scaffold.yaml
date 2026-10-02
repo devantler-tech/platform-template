@@ -59,6 +59,12 @@ jobs:
         # renders the explicit local/prod profiles selected through KSail.
         run: ./scripts/validate-observability-option.sh
 
+      - name: 🔐 Validate SSO deep-link redirects
+        # Every host behind oauth2-proxy finishes its login on its own host and
+        # returns the user to the page they asked for: Dex must accept exactly
+        # those callbacks, with no fixed redirect_url or per-route redirect header.
+        run: ./scripts/tests/test-oauth2-proxy-sso-redirects.sh
+
       - name: 🏷️ Validate default-off recommended workload labels
         # Existing instances keep their default paths. Exercise the explicit
         # profiles and the exact immutable shared-policy contract.

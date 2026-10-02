@@ -797,10 +797,12 @@ assert_coroot_sso_controller_contract() {
         select(.spec.hostnames == ["observability.${domain}"]) |
         select(.spec.rules | length == 1) |
         select(.spec.rules[0].backendRefs == [{"name":"oauth2-proxy","namespace":"oauth2-proxy","port":80}]) |
-        select(any(.spec.rules[0].filters[]?;
-          .type == "RequestHeaderModifier" and
-          any(.requestHeaderModifier.set[]?;
-            .name == "X-Auth-Request-Redirect" and .value == "https://observability.${domain}/"))) |
+        # No fixed X-Auth-Request-Redirect: oauth2-proxy returns the user to the
+        # page they asked for (scripts/tests/test-oauth2-proxy-sso-redirects.sh).
+        select(all(.spec.rules[0].filters[]?;
+          .type != "RequestHeaderModifier" or
+          ([((.requestHeaderModifier.set // []) + (.requestHeaderModifier.add // []))[] |
+            select(.name | ascii_downcase == "x-auth-request-redirect")] | length == 0))) |
         select(any(.spec.rules[0].filters[]?;
           .type == "ResponseHeaderModifier" and
           any(.responseHeaderModifier.set[]?;

@@ -19,11 +19,6 @@ spec:
     - prometheus.${domain}
   rules:
     - filters:
-        - type: RequestHeaderModifier
-          requestHeaderModifier:
-            set:
-              - name: X-Auth-Request-Redirect
-                value: https://prometheus.${domain}/
         - type: ResponseHeaderModifier
           responseHeaderModifier:
             set:
