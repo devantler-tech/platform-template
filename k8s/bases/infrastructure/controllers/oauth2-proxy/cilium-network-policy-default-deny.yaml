@@ -5,9 +5,14 @@ metadata:
   namespace: oauth2-proxy
 spec:
   endpointSelector: {}
-  # Selecting all endpoints with empty ingress/egress arrays puts every pod in
-  # the namespace into deny-by-default. Other CNPs in the namespace add
-  # specific allow rules per workload (see cilium-network-policy.yaml,
-  # ../auth-proxy/cilium-network-policy.yaml).
-  ingress: []
-  egress: []
+  # One empty rule per direction names no peer or port, so it allows nothing
+  # while activating a valid default-deny floor. Keep this spec identical to
+  # the add-default-deny ClusterPolicy output under the same resource name.
+  # Other CNPs add the traffic each workload requires.
+  ingress:
+    - {}
+  egress:
+    - {}
+  enableDefaultDeny:
+    ingress: true
+    egress: true

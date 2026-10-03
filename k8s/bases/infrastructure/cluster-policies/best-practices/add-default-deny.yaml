@@ -44,13 +44,16 @@ spec:
         data:
           spec:
             endpointSelector: {}
+            # One empty rule per direction names no peer or port, so it allows
+            # nothing while activating a valid, composable default-deny floor.
+            # Explicit deny rules would override workload allow policies.
+            ingress:
+              - {}
+            egress:
+              - {}
             enableDefaultDeny:
               ingress: true
               egress: true
-            ingressDeny:
-              - {}
-            egressDeny:
-              - {}
     - name: generate-allow-dns
       match:
         any:
