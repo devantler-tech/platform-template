@@ -54,7 +54,7 @@ jobs:
     # Static folder/file naming gate: kebab-case dirs, one-resource-per-file,
     # Kind-led filenames, CR-folder plurals, patch/talos intent naming, and
     # flux-kustomization disambiguation — the reference platform's conventions
-    # (platform#2315), shared through devantler-tech/actions. No cluster or
+    # (platform#2315), shared through devantler-tech/.github. No cluster or
     # secrets; Go setup/build can download dependencies. Template-repo-only:
     # instances run the gate via the template-synced validate-naming.yaml
     # (their ci.yaml is instance-owned), so without this guard every instance
@@ -75,10 +75,19 @@ jobs:
           persist-credentials: false
 
       - name: 🏷️ Validate naming conventions
-        uses: devantler-tech/actions/validate-naming@df7fd4f83edade31c121a9de563d9a7b9b1f900d # v13.10.3
+        id: naming
+        uses: devantler-tech/.github/actions/validate-naming@4ddc63e74ffba23c243bde73755786fae56bef9e # v4.8.1
         with:
-          enabled: "true"
           config-file: .github/manifest-naming.yaml
+
+      - name: Require a complete naming scan
+        env:
+          VALIDATED: ${{ steps.naming.outputs.validated }}
+        run: |
+          if [ "$VALIDATED" != true ]; then
+            echo "::error::The naming scan did not complete; repair its configuration or finding."
+            exit 1
+          fi
 
   system-test:
     name: 🧪 System Test
