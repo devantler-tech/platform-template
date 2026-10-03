@@ -157,7 +157,7 @@ same-repo (non-fork) PRs; let CI run it, do not attempt it locally.
 ### File and directory naming conventions
 
 Manifest naming follows the reference platform's conventions (platform#2315),
-enforced by the shared `devantler-tech/actions/validate-naming` action (a CI gate
+enforced by the shared `devantler-tech/.github/actions/validate-naming` action (a CI gate
 on manifest, naming-configuration, and naming-workflow changes):
 
 - **Kebab-case** directories and file stems everywhere under `k8s/` and `talos*/`
@@ -195,9 +195,9 @@ Run the same pinned gate locally before a manifest PR, with Go installed:
 
 ```bash
 actions_dir="$(mktemp -d)"
-git clone --quiet --depth 1 --branch v13.5.0 https://github.com/devantler-tech/actions.git "$actions_dir"
-git -C "$actions_dir" checkout --quiet --detach 883d891a0e6a2c9420d2b60aea9d5f47c20ce803
-GOWORK=off go -C "$actions_dir/validate-naming" run -mod=readonly . \
+git clone --quiet --depth 1 --branch v4.8.1 https://github.com/devantler-tech/.github.git "$actions_dir"
+git -C "$actions_dir" checkout --quiet --detach 4ddc63e74ffba23c243bde73755786fae56bef9e
+GOWORK=off go -C "$actions_dir/actions/validate-naming" run -mod=readonly . \
   --root "$PWD" --config .github/manifest-naming.yaml
 ```
 
