@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "repositories": ["devantler-tech/reusable-workflows"],
+  "paths": [
+    "README.md", "AGENTS.md", "CLAUDE.md", "SECURITY.md", "docs", ".claude/skills",
+    "k8s/bases/README.md",
+    "k8s/bases/apps/README.md",
+    "k8s/bases/apps/headlamp/README.md",
+    "k8s/bases/infrastructure/README.md",
+    "k8s/bases/infrastructure/audit-log-forwarder/README.md",
+    "k8s/bases/infrastructure/controllers/cert-manager/README.md",
+    "k8s/bases/infrastructure/controllers/cilium/README.md",
+    "k8s/bases/infrastructure/controllers/dex/README.md",
+    "k8s/bases/infrastructure/controllers/kyverno/README.md",
+    "k8s/bases/infrastructure/controllers/reloader/README.md",
+    "k8s/bases/infrastructure/controllers/testkube/README.md",
+    "k8s/bases/infrastructure/controllers/tetragon/README.md",
+    "k8s/providers/README.md",
+    "k8s/providers/hetzner/infrastructure/controllers/kubelet-serving-cert-approver/README.md"
+  ],
+  "exceptions": []
+}
