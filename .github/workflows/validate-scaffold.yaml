@@ -65,6 +65,11 @@ jobs:
         # those callbacks, with no fixed redirect_url or per-route redirect header.
         run: ./scripts/tests/test-oauth2-proxy-sso-redirects.sh
 
+      - name: 🛡️ Validate Cilium default-deny shape
+        # Empty direction lists are rejected by Cilium, while explicit deny
+        # rules override the allow policies that must reopen required traffic.
+        run: ./scripts/tests/test-default-deny-shape.sh
+
       - name: 🏷️ Validate default-off recommended workload labels
         # Existing instances keep their default paths. Exercise the explicit
         # profiles and the exact immutable shared-policy contract.
