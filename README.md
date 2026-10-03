@@ -84,6 +84,13 @@ Tear the cluster down with `ksail cluster delete`.
 
 ## Documentation
 
+The template's CI checks documentation for links to retired repositories using
+[retired-repo-links.json](.github/retired-repo-links.json). It requires a complete
+clean scan and rejects a seeded retired link in a disposable copy. This gate
+runs only in the template repository. Generated platforms own their scan
+configuration and choose when to enable the shared validator; template sync
+preserves their scope and historical exceptions.
+
 - [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) — what runs on the cluster, the local and production clusters, and how the repository is laid out.
 - [`BOOTSTRAP.md`](docs/BOOTSTRAP.md) — the end-to-end bootstrap guide: prerequisites, Variables and Secrets, run, verify, teardown, troubleshooting.
 - [`TEMPLATING.md`](docs/TEMPLATING.md) — the inputs the bootstrap renders, and how to change them later or for a new environment.
