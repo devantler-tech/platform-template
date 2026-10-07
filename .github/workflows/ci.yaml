@@ -429,7 +429,7 @@ jobs:
     permissions: {}
     steps:
       - name: 📊 Evaluate job results
-        uses: devantler-tech/.github/actions/aggregate-job-checks@4b00bd6698af033dc472b39a7e609173fe38dfb1 # v6.0.6
+        uses: devantler-tech/.github/actions/aggregate-job-checks@ef34177c48310d4e8d6605233cb7218b926dcc55 # v7.2.11
         with:
           job-results: >-
             ${{ needs.changes.result }}
