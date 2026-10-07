@@ -29,7 +29,7 @@ jobs:
           persist-credentials: false
       - name: Check documentation
         id: links
-        uses: devantler-tech/.github/actions/validate-retired-repo-links@bd0035dd8f41fcf1459b878882b8897443f8dc59 # v4.9.4
+        uses: devantler-tech/.github/actions/validate-retired-repo-links@ef34177c48310d4e8d6605233cb7218b926dcc55 # v7.2.11
         with:
           enabled: "true"
       - name: Require a complete scan
@@ -48,7 +48,7 @@ jobs:
       - name: Reject the seeded retired link
         id: negative
         continue-on-error: true
-        uses: devantler-tech/.github/actions/validate-retired-repo-links@bd0035dd8f41fcf1459b878882b8897443f8dc59 # v4.9.4
+        uses: devantler-tech/.github/actions/validate-retired-repo-links@ef34177c48310d4e8d6605233cb7218b926dcc55 # v7.2.11
         with:
           enabled: "true"
           working-directory: ${{ steps.fixture.outputs.directory }}
