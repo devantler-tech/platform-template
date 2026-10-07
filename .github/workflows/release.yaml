@@ -13,7 +13,7 @@ jobs:
     # own cluster repo. The template repo itself ships no release (it is the sync
     # source; downstream instances release independently).
     if: github.repository != 'devantler-tech/platform-template'
-    uses: devantler-tech/.github/.github/workflows/create-release.yaml@8927f40e06cf2446dfee4e3dfa10172758b72fb0 # v6.2.2
+    uses: devantler-tech/.github/.github/workflows/create-release.yaml@ef34177c48310d4e8d6605233cb7218b926dcc55 # v7.2.11
     with:
       # Skip semantic-release's success/fail hooks, which comment on referenced
       # issues and PRs. A bare `fix #N` meant for another repository otherwise
