@@ -149,7 +149,7 @@ jobs:
 
       - name: 🏷️ Validate naming conventions
         id: naming
-        uses: devantler-tech/.github/actions/validate-naming@4ddc63e74ffba23c243bde73755786fae56bef9e # v4.8.1
+        uses: devantler-tech/.github/actions/validate-naming@ef34177c48310d4e8d6605233cb7218b926dcc55 # v7.2.11
         with:
           config-file: .github/manifest-naming.yaml
 
