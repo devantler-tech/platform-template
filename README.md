@@ -53,7 +53,7 @@ including verification, teardown and troubleshooting.
 ## Check it without a cluster
 
 Before you create anything, you can confirm that the scaffold in a fresh copy is sound. This needs
-only [KSail](https://github.com/devantler-tech/ksail) and network access to download public charts
+only Git, [KSail](https://github.com/devantler-tech/ksail) and network access to download public charts
 and policies: no cluster, Docker engine, cloud account or secret.
 
 ```bash
