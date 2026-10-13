@@ -2,7 +2,7 @@
   "version": 1,
   "repositories": ["devantler-tech/reusable-workflows"],
   "paths": [
-    "README.md", "AGENTS.md", "CLAUDE.md", "SECURITY.md", "docs", ".claude/skills",
+    "README.md", "CONTRIBUTING.md", "AGENTS.md", "CLAUDE.md", "SECURITY.md", "docs", ".claude/skills",
     "k8s/bases/README.md",
     "k8s/bases/apps/README.md",
     "k8s/bases/apps/headlamp/README.md",

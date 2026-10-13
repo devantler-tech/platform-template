@@ -16,6 +16,7 @@
 # --- Identity & docs (instance-specific) ---
 AGENTS.md
 README.md
+CONTRIBUTING.md
 LICENSE
 SECURITY.md
 .claude/skills/maintain/SKILL.md
