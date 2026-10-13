@@ -63,7 +63,7 @@ ksail --config ksail.yaml workload validate
 ```
 
 It builds every manifest for the local cluster, fills in the variables and checks each resource
-against its schema. After a minute or two it ends with `✔ 265 files validated` (the number grows
+against its schema. After a minute or two it prints `✔ 265 files validated` (the number grows
 with the scaffold) and exits 0. Lines that start with `⚠` are warnings about checks that need a
 network download or a live cluster, not failures. It proves that the manifests are well formed, not
 that a cluster built from them is healthy; for that, continue with *Local development* below.

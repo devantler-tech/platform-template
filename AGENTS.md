@@ -150,9 +150,10 @@ default absence, opt-in renders, and exact policy contract with the
 `validate-recommended-labels-option.sh` command above.
 
 `flux check` and other cluster-dependent checks require a running cluster — they are
-**not** part of static validation and must not be run during maintenance. A full
-Talos + Docker system test runs in CI (`validate-scaffold.yaml` / `ci.yaml`) on
-same-repo (non-fork) PRs; let CI run it, do not attempt it locally.
+**not** part of static validation and must not be run during maintenance. No
+workflow starts a cluster in this repository: `validate-scaffold.yaml` runs the
+static checks here, and the Talos + Docker system test in `ci.yaml` runs only in
+an instance, on same-repo (non-fork) PRs; let CI run it, do not attempt it locally.
 
 ### File and directory naming conventions
 
@@ -195,8 +196,8 @@ Run the same pinned gate locally before a manifest PR, with Go installed:
 
 ```bash
 actions_dir="$(mktemp -d)"
-git clone --quiet --depth 1 --branch v4.8.1 https://github.com/devantler-tech/.github.git "$actions_dir"
-git -C "$actions_dir" checkout --quiet --detach 4ddc63e74ffba23c243bde73755786fae56bef9e
+git clone --quiet --depth 1 --branch v7.2.11 https://github.com/devantler-tech/.github.git "$actions_dir"
+git -C "$actions_dir" checkout --quiet --detach ef34177c48310d4e8d6605233cb7218b926dcc55
 GOWORK=off go -C "$actions_dir/actions/validate-naming" run -mod=readonly . \
   --root "$PWD" --config .github/manifest-naming.yaml
 ```
