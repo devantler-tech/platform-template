@@ -50,6 +50,24 @@ From then on, merging a pull request deploys through the merge queue, and pushin
 deploys through the CD pipeline. [`docs/BOOTSTRAP.md`](docs/BOOTSTRAP.md) is the full guide,
 including verification, teardown and troubleshooting.
 
+## Check it without a cluster
+
+Before you create anything, you can confirm that the scaffold in a fresh copy is sound. This needs
+only [KSail](https://github.com/devantler-tech/ksail) and network access to download public charts
+and policies: no cluster, Docker engine, cloud account or secret.
+
+```bash
+git clone https://github.com/devantler-tech/platform-template.git
+cd platform-template
+ksail --config ksail.yaml workload validate
+```
+
+It builds every manifest for the local cluster, fills in the variables and checks each resource
+against its schema. After a minute or two it ends with `✔ 265 files validated` (the number grows
+with the scaffold) and exits 0. Lines that start with `⚠` are warnings about checks that need a
+network download or a live cluster, not failures. It proves that the manifests are well formed, not
+that a cluster built from them is healthy; for that, continue with *Local development* below.
+
 ## Local development
 
 You need neither Hetzner nor the Bootstrap workflow to develop locally: the local cluster runs on
@@ -84,13 +102,7 @@ Tear the cluster down with `ksail cluster delete`.
 
 ## Documentation
 
-The template's CI checks documentation for links to retired repositories using
-[retired-repo-links.json](.github/retired-repo-links.json). It requires a complete
-clean scan and rejects a seeded retired link in a disposable copy. This gate
-runs only in the template repository. Generated platforms own their scan
-configuration and choose when to enable the shared validator; template sync
-preserves their scope and historical exceptions.
-
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — sending an improvement to this template: a first change, the local checks and what a pull request needs.
 - [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) — what runs on the cluster, the local and production clusters, and how the repository is laid out.
 - [`BOOTSTRAP.md`](docs/BOOTSTRAP.md) — the end-to-end bootstrap guide: prerequisites, Variables and Secrets, run, verify, teardown, troubleshooting.
 - [`TEMPLATING.md`](docs/TEMPLATING.md) — the inputs the bootstrap renders, and how to change them later or for a new environment.
