@@ -47,7 +47,17 @@ The command must return no resources.
 A later template change registers the catalog's `auto-vpa-generating-policy.yaml`: three
 `GeneratingPolicy` objects, `auto-vpa-deployment`, `auto-vpa-statefulset` and `auto-vpa-daemonset`.
 The template adopts the catalog's values: a 50m CPU floor, CPU-only sizing for DaemonSets, and
-sizing in every namespace. Take it as its own template-sync merge, after the check above passes.
+sizing in every namespace. The catalog form needs Kyverno 1.19 or later (chart 3.9.1, which this
+template ships) to generate VPAs for workloads that already exist. Take it as its own template-sync
+merge, only after the check above passes **and** the cluster runs Kyverno 1.19 or later:
+
+```bash
+kubectl -n kyverno get deployment kyverno-admission-controller \
+  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+```
+
+The printed image tag must be `v1.19.0` or later.
+
 Afterwards, every matching workload should have exactly one VPA, labelled with the policy for its
 kind.
 
