@@ -30,9 +30,9 @@ spec:
       rbac:
         clusterRole:
           extraResources:
-            # The auto-vpa ClusterPolicy generates VPA objects for every
-            # Deployment / StatefulSet.  Kyverno needs RBAC on the target
-            # resource type for generate rules to work.
+            # The auto-vpa GeneratingPolicies generate VPA objects for every
+            # Deployment / StatefulSet / DaemonSet.  Kyverno needs RBAC on the
+            # target resource type for generation to work.
             - apiGroups:
                 - autoscaling.k8s.io
               resources:

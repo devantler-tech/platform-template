@@ -115,6 +115,7 @@ applies Flux variable substitution, and does **not** start a cluster):
 
 ```bash
 ./scripts/validate-shared-cluster-policies.sh
+./scripts/validate-shared-auto-vpa-policy.sh
 ./scripts/validate-recommended-labels-option.sh
 ksail --config ksail.yaml workload validate
 ksail --config ksail.prod.yaml workload validate
@@ -122,7 +123,9 @@ ksail --config ksail.prod.yaml workload validate
 
 The policy gates render both provider payloads. The shared-policy gate verifies
 that the default remote Helm remediation policy remains pinned to its reviewed
-revision and retains its expected mutation contract. The recommended-label gate
+revision and retains its expected mutation contract. The workload-sizing gate
+verifies that sizing comes only from the pinned catalog `auto-vpa` GeneratingPolicy
+form and never from the classic ClusterPolicy next to it. The recommended-label gate
 proves the separate opt-in profiles preserve default absence and the reviewed
 label-mutation contract.
 
@@ -248,7 +251,8 @@ minimal and generic.
 **Validate before any manifest PR** — prefer `ksail --config ksail.yaml workload
 validate` and `ksail --config ksail.prod.yaml workload validate` (schema-aware, Flux
 substitution, no cluster), and run `./scripts/validate-shared-cluster-policies.sh`
-when default shared policy resources change. Changes to the default-off
+and `./scripts/validate-shared-auto-vpa-policy.sh` when default shared policy
+resources change. Changes to the default-off
 recommended-label profiles also run
 `./scripts/validate-recommended-labels-option.sh`. Without KSail, both overlays MUST build with `kubectl
 kustomize k8s/clusters/local/` and `kubectl kustomize k8s/clusters/prod/`. Per file:

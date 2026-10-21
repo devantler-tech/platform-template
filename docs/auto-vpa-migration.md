@@ -10,9 +10,10 @@ catalog's `GeneratingPolicy` form. Tracking issue:
 The two forms name their VPAs differently (`<name>` versus `<name>-<kind>`), so they cannot adopt
 each other's VPAs. If both ran at once, one workload would get two VPAs fighting over its requests.
 The move therefore comes in **two template changes that an instance takes as two separate
-template-sync merges**.
+template-sync merges**. The template now carries both; an instance that has not yet taken step 1
+follows the split described at the end of step 2.
 
-## Step 1 — stop the classic policy (current template)
+## Step 1 — stop the classic policy
 
 This step:
 
@@ -42,9 +43,9 @@ kubectl get vpa -A -l generate.kyverno.io/policy-name=auto-vpa
 
 The command must return no resources.
 
-## Step 2 — register the catalog form (later template change)
+## Step 2 — register the catalog form
 
-A later template change registers the catalog's `auto-vpa-generating-policy.yaml`: three
+The second template change registers the catalog's `auto-vpa-generating-policy.yaml`: three
 `GeneratingPolicy` objects, `auto-vpa-deployment`, `auto-vpa-statefulset` and `auto-vpa-daemonset`.
 The template adopts the catalog's values: a 50m CPU floor, CPU-only sizing for DaemonSets, and
 sizing in every namespace. The catalog form needs Kyverno 1.19 or later (chart 3.9.1, which this
