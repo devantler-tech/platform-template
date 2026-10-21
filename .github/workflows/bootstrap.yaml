@@ -53,7 +53,7 @@ concurrency:
 
 env:
   # renovate: datasource=github-releases depName=devantler-tech/ksail extractVersion=^v(?<version>.+)$
-  KSAIL_VERSION: "7.23.4"
+  KSAIL_VERSION: "7.202.70"
 
 jobs:
   bootstrap:
@@ -176,7 +176,6 @@ jobs:
           # Expose the PRIVATE key to later steps (masked) for the secret write-back.
           echo "::add-mask::$(cat ~/.config/sops/age/keys.txt | grep AGE-SECRET-KEY)"
           { echo "age_key<<EOF"; cat ~/.config/sops/age/keys.txt; echo "EOF"; } >> "$GITHUB_OUTPUT"
-          ksail cipher import "$(cat ~/.config/sops/age/keys.txt)" || true
 
       - name: 🧩 Render configuration from Variables
         env:
