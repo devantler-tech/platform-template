@@ -169,7 +169,8 @@ The steps, in order (read the workflow for the exact commands):
    exists (the re-bootstrap guard; see [Troubleshooting](#troubleshooting)).
 5. **Install tooling** — `ksail`, `sops`, `age`, `yq` on the runner.
 6. **Generate Age key + update `.sops.yaml`** — replaces the `<INSTANCE_AGE_PUBLIC_KEY>`
-   placeholder with the freshly generated public key, and imports the key into ksail.
+   placeholder with the freshly generated public key, and writes the private key to
+   SOPS's standard key file (`~/.config/sops/age/keys.txt`), where `sops` looks for it.
 7. **Render configuration from Variables** — writes your `DOMAIN`, Cloudflare,
    admin-email, Hetzner-location and SSO values into the `variables-*` ConfigMaps and
    `ksail.prod.yaml`, and rewrites the domain/org placeholders in `talos/` and `k8s/`.
