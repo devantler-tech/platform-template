@@ -11,6 +11,6 @@ jobs:
     permissions:
       contents: read # checkout so the scanner can read the source files
       issues: write # open/maintain the tracking issues the scanner manages
-    uses: devantler-tech/.github/.github/workflows/scan-for-todo-comments.yaml@8ed2071ebe18864b8b86efe0f6b1df8d73d2a6ab # v7.10.4
+    uses: devantler-tech/.github/.github/workflows/scan-for-todo-comments.yaml@d633b9a4e3122beda4eed42053dcfb30af59b652 # v7.23.1
     secrets:
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
