@@ -201,7 +201,9 @@ jobs:
         with:
           distribution: Talos
           provider: Docker
-          ksail-version: "7.23.4"
+          # Keep in step with KSAIL_VERSION in deploy-prod: Renovate tracks only
+          # that pin, so this input must be bumped alongside it.
+          ksail-version: "7.202.70"
           init: "false"
           validate: "true"
           scan: "true"
