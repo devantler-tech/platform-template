@@ -78,7 +78,8 @@ hosts                   # Host entries mapping *.platform.lan names to 127.0.0.1
 docs/                   # Operator & disaster-recovery runbooks (TEMPLATE-OWNED) — ARCHITECTURE
                         #   (component inventory, clusters, layout; the README links here instead
                         #   of inlining it), BOOTSTRAP, TEMPLATING, TENANTS, node-autoscaling,
-                        #   oidc-kubectl, runtime-security, rwx-storage, secret-rotation
+                        #   oidc-kubectl, runtime-security, rwx-storage, secret-rotation,
+                        #   auto-vpa-migration
   dr/                   # Disaster-recovery runbooks: README, runbook, restore-drill, alerting,
                         #   crypto-custody, openbao, velero-cnpg
 ```

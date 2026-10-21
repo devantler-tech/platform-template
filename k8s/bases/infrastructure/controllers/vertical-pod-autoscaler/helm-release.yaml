@@ -35,6 +35,14 @@ spec:
     updater:
       enabled: true
       replicaCount: ${vpa_updater_replicas:=1}
+      # min-replicas: the updater skips any workload with fewer live replicas
+      # than this (VPA default 2), unless the VPA sets its own
+      # updatePolicy.minReplicas. Most workloads here run one replica, and the
+      # shared catalog's generated VPAs set no minReplicas, so the cluster-wide
+      # floor is 1: a single-replica workload is still right-sized instead of
+      # silently never acted on. VPAs that set minReplicas keep their own value.
+      extraArgs:
+        min-replicas: 1
       podSecurityContext:
         runAsUser: 65534
         runAsGroup: 65534
