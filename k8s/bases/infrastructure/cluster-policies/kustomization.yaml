@@ -6,14 +6,11 @@ resources:
   - best-practices/add-default-deny.yaml
   - best-practices/add-resource-defaults.yaml
   - best-practices/add-security-context.yaml
-  # best-practices/auto-vpa.yaml is deliberately NOT registered. It is step 1
-  # of the move to the shared catalog's GeneratingPolicy form
-  # (devantler-tech/kyverno-policies#1, platform-template#256). Removing the
-  # classic policy deletes the VPAs it generated (synchronize: true). The
-  # catalog form is registered in a later template revision, taken as a
-  # separate sync once no `generate.kyverno.io/policy-name=auto-vpa` VPA
-  # remains, so the two forms never size one workload at once. The file stays
-  # as the rollback form; see docs/auto-vpa-migration.md.
+  # best-practices/auto-vpa.yaml (the classic ClusterPolicy) is deliberately NOT
+  # registered: workload sizing comes from the shared catalog's GeneratingPolicy
+  # form, pinned below (devantler-tech/kyverno-policies#1, platform-template#256).
+  # Never register both forms on one cluster. The classic file stays as the
+  # rollback form; see docs/auto-vpa-migration.md.
   - best-practices/disable-default-sa-automount.yaml
   - best-practices/restrict-tenant-secret-stores.yaml
   - best-practices/validate-host-restrictions.yaml
@@ -24,6 +21,7 @@ resources:
   # Shared catalog policies (immutable pins; update manually after review)
   - https://raw.githubusercontent.com/devantler-tech/kyverno-policies/ffff4f152f3efd940cc78d56d257925592409ce1/policies/best-practices/disallow-latest-tag.yaml
   - https://raw.githubusercontent.com/devantler-tech/kyverno-policies/fd5fe3e8bb837ed6fecbd70dfdc59df1b94672c1/policies/flux/helm-release-remediation-retries.yaml
+  - https://raw.githubusercontent.com/devantler-tech/kyverno-policies/af8d7711e8f7337b647e686c21816134976084f7/policies/best-practices/auto-vpa-generating-policy.yaml
   # Upstream kyverno/policies samples (vendored locally; patched below)
   - samples/best-practices/add-ns-quota/add-ns-quota.yaml
   - samples/other/create-pod-antiaffinity/create-pod-antiaffinity.yaml
@@ -50,7 +48,7 @@ patches:
       - op: replace
         path: /spec/rules/0/generate/data/spec/hard
         value:
-          # Quota only the REQUESTS dimension. auto-vpa.yaml runs VPA with
+          # Quota only the REQUESTS dimension. The auto-vpa policies run VPA with
           # controlledValues: RequestsAndLimits, so VPA raises container LIMITS
           # dynamically (ratio-preserving). A static limits.cpu/limits.memory
           # quota would then reject the very rollouts VPA triggers once limits
@@ -82,8 +80,8 @@ patches:
       - op: replace
         path: /spec/rules/1/generate/data/spec/limits/0/defaultRequest
         value:
-          # CPU floor lowered 50m->15m to match VPA minAllowed (auto-vpa.yaml);
-          # idle controllers default lower until VPA right-sizes them.
+          # CPU default 15m: idle controllers start low until VPA right-sizes
+          # them (the auto-vpa policies floor sized pods at 50m).
           cpu: 15m
           memory: 128Mi
       # Skip namespaces that are being deleted. A terminating namespace (e.g.

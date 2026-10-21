@@ -44,6 +44,7 @@ checks any manifest change needs:
 ksail --config ksail.yaml workload validate
 GHCR_TOKEN=placeholder ksail --config ksail.prod.yaml workload validate
 ./scripts/validate-shared-cluster-policies.sh
+./scripts/validate-shared-auto-vpa-policy.sh
 ./scripts/validate-recommended-labels-option.sh
 git diff --check
 ```
