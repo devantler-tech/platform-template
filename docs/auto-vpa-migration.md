@@ -18,13 +18,20 @@ This step:
 
 - unregisters `best-practices/auto-vpa.yaml` from
   `k8s/bases/infrastructure/cluster-policies/kustomization.yaml`. The policy uses
-  `synchronize: true`, so Kyverno deletes the VPAs it generated. Workloads keep their current
-  requests and limits; nothing resizes them until step 2.
+  `synchronize: true`, so Kyverno deletes the VPAs it generated.
 - runs the VPA updater with `--min-replicas=1`. The catalog's VPAs set no `minReplicas`, and the
   updater's default of 2 would leave single-replica workloads, which most template workloads are,
   never resized.
 
 The policy file stays in the repository as the rollback form.
+
+**Between step 1 and step 2, no workload is sized.** VPA sets requests and limits when a pod is
+admitted, so a running pod keeps its current values only until it restarts. A pod created in this
+interval, by a rollout, an eviction or a node drain, gets its chart's values, or the
+`add-resource-defaults` policy's generic defaults where the chart sets none. A workload whose VPA had
+raised its memory limit above the authored one can then be OOM-killed. Keep the interval short:
+take step 2 straight after the check below passes, and avoid rollouts and node maintenance until
+then.
 
 **Before taking step 2**, merge the step 1 sync, let Flux reconcile `infrastructure`, and confirm no
 classic VPA remains:
