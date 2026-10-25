@@ -5,7 +5,11 @@
 #   Hetzner-recommended extension:
 #     - siderolabs/qemu-guest-agent (Hetzner Cloud VM integration)
 #
-# Schematic: https://factory.talos.dev/?arch=amd64&extensions=siderolabs%2Fiscsi-tools&extensions=siderolabs%2Fqemu-guest-agent&extensions=siderolabs%2Futil-linux-tools&target=hcloud&version=1.12.4
+# KSail replaces the schematic below with the one it computes from
+# spec.cluster.talos.extensions in ksail.prod.yaml, but it takes the installer
+# version from this tag, so keep the tag equal to spec.cluster.talos.version.
+#
+# Schematic: https://factory.talos.dev/?arch=amd64&extensions=siderolabs%2Fiscsi-tools&extensions=siderolabs%2Fqemu-guest-agent&extensions=siderolabs%2Futil-linux-tools&target=hcloud&version=1.13.11
 machine:
   install:
-    image: factory.talos.dev/installer/e187c9b90f773cd8c84e5a3265c5554ee787b2fe67b508d9f955e90e7ae8c96c:v1.12.4
+    image: factory.talos.dev/installer/e187c9b90f773cd8c84e5a3265c5554ee787b2fe67b508d9f955e90e7ae8c96c:v1.13.11
