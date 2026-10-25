@@ -14,12 +14,12 @@ KSail natively installs and manages the Cluster Autoscaler when
 ```
 KSail (static baseline)
 ├── 3 control planes (cx33, 4 vCPU / 8 GB, never autoscaled)
-└── 3 static workers (cx33, 4 vCPU / 8 GB, guaranteed minimum, Longhorn storage nodes)
+└── 4 static workers (cx33, 4 vCPU / 8 GB, guaranteed minimum, Longhorn storage nodes)
 
 Cluster Autoscaler (dynamic workers, managed by KSail)
 ├── Pool: autoscale-small  → 0-1 × CX23 (2 vCPU, 4 GB)
 ├── Pool: autoscale-medium → 0-2 × CX33 (4 vCPU, 8 GB)
-├── maxNodesTotal: 10 (3 CPs + 3 workers + headroom for autoscaler nodes)
+├── maxNodesTotal: 9 (3 CPs + 4 workers + up to 2 autoscaler nodes)
 └── Expander: LeastWaste
 ```
 
@@ -65,7 +65,7 @@ spec:
       node:
         enabled: true
         expander: LeastWaste
-        maxNodesTotal: 10
+        maxNodesTotal: 9
         scaleDownUnneededTime: "10m"
         pools:
           - name: autoscale-small
@@ -96,9 +96,14 @@ spec:
 
 - **Hard max per pool** — `pools[].max` caps each pool independently.
 - **Hard max total** — `maxNodesTotal` caps the **total cluster node count**
-  (CPs + static workers + autoscaler workers). Set to `10` (3 CPs + 3
-  workers = 6 base, plus up to 3 autoscaler nodes from the current pool caps
-  of 1 small + 2 medium).
+  (CPs + static workers + autoscaler workers). Set to `9`: 3 CPs + 4
+  workers = 7 base, plus up to 2 autoscaler nodes, although the pool caps
+  (1 small + 2 medium) would allow 3.
+- **Snapshot-build slot** — KSail starts a temporary server to build the
+  Talos snapshot that nodes boot from, and rejects the config unless that
+  server fits under the Hetzner server limit (`spec.provider.hetzner.serverLimit`,
+  default `10`). Keep `maxNodesTotal`, or the base plus every pool cap when it
+  is lower, at least one below the limit.
 - **Expander** — `LeastWaste` (current) picks the node group left with the
   least idle capacity after scheduling; `Price` instead picks the cheapest
   eligible group.
