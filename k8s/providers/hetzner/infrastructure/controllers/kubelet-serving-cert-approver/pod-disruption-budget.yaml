@@ -1,0 +1,16 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kubelet-serving-cert-approver
+  namespace: kubelet-serving-cert-approver
+spec:
+  # The upstream ha-install.yaml runs 2 leader-elected replicas on different
+  # nodes but ships no PDB. maxUnavailable: 1 keeps a node drainable at any
+  # replica count (minAvailable: 1 would block a drain while only one replica
+  # is ready) and keeps the warm standby approving kubelet serving-certificate
+  # requests while a node drains.
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubelet-serving-cert-approver
+      app.kubernetes.io/instance: kubelet-serving-cert-approver
