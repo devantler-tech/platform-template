@@ -23,7 +23,11 @@ spec:
       node:
         enabled: true
         expander: LeastWaste
-        maxNodesTotal: 10
+        # Whole-cluster ceiling: 3 control planes + 4 static workers + up to
+        # 2 autoscaled nodes. Keep it one below the Hetzner server limit
+        # (default 10): KSail rejects the config unless one server stays free
+        # for the temporary server that builds the Talos snapshot.
+        maxNodesTotal: 9
         scaleDownUnneededTime: "10m"
         pools:
           - name: autoscale-small
