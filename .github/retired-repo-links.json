@@ -5,7 +5,6 @@
     "README.md", "CONTRIBUTING.md", "AGENTS.md", "CLAUDE.md", "SECURITY.md", "docs", ".claude/skills",
     "k8s/bases/README.md",
     "k8s/bases/apps/README.md",
-    "k8s/bases/apps/headlamp/README.md",
     "k8s/bases/infrastructure/README.md",
     "k8s/bases/infrastructure/audit-log-forwarder/README.md",
     "k8s/bases/infrastructure/controllers/cert-manager/README.md",

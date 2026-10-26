@@ -1,6 +1,6 @@
 # Onboarding a GitOps tenant
 
-The platform ships with a few lightweight **demo apps** (homepage, whoami, headlamp)
+The platform ships with a few lightweight **demo apps** (homepage, whoami)
 in [`k8s/bases/apps/`](../k8s/bases/apps). To run **your own** application on the
 platform, add it as a **tenant**: an application that runs on the cluster but lives in
 its **own repository**. The tenant repo builds a container image and publishes its

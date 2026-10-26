@@ -73,8 +73,8 @@ ksail --config ksail.prod.yaml cluster update
 ksail --config ksail.prod.yaml workload reconcile
 ```
 
-This profile is transitional. It enables Coroot, removes OpenCost and its Headlamp
-plugin, retires the legacy Loki and Alloy log path, and keeps kube-prometheus-stack
+This profile is transitional. It enables Coroot, removes OpenCost,
+retires the legacy Loki and Alloy log path, and keeps kube-prometheus-stack
 until the metrics and alerting migration is proven separately. Cost allocation is therefore unavailable in this
 profile; it does not connect OpenCost to Coroot Prometheus. Coroot is the only
 observability UI in this profile: it removes the Grafana, Prometheus and Alertmanager
@@ -250,8 +250,7 @@ See [`.github/workflows/`](../.github/workflows) for the exact names in use.
   Kyverno, alerting configs, OpenBao vault, External Secrets Operator,
   ClusterSecretStore, vault-config Job, vault-seed PushSecrets, vault-backup CronJob,
   and the rest of the controller set.
-- [`k8s/bases/apps/`](../k8s/bases/apps) — the demo applications (homepage, whoami,
-  headlamp).
+- [`k8s/bases/apps/`](../k8s/bases/apps) — the demo applications (homepage, whoami).
 - [`k8s/components/`](../k8s/components) — shared transformations: the HelmRelease
   retry defaults and drift detection every HelmRelease-owning kustomization lists, and opt-in
   profile transformations such as removing OpenCost across controller,

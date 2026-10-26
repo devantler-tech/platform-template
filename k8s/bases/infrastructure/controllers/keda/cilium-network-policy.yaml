@@ -43,13 +43,6 @@ spec:
     # HTTP interceptor -> backend services in KEDA-managed namespaces
     - toEndpoints:
         - matchLabels:
-            k8s:io.kubernetes.pod.namespace: headlamp
-      toPorts:
-        - ports:
-            - port: "4466"
-              protocol: TCP
-    - toEndpoints:
-        - matchLabels:
             k8s:io.kubernetes.pod.namespace: whoami
       toPorts:
         - ports:

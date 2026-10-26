@@ -1,6 +1,6 @@
 # Distributes the Cloudflare Origin ECC CA root + system CAs to all namespaces
 # as the ConfigMap "cloudflare-origin-ca". Required so that in-cluster clients
-# (e.g. Headlamp) can verify TLS connections to the Cilium gateway when CoreDNS
+# can verify TLS connections to the Cilium gateway when CoreDNS
 # resolves *.platform.example.com directly to the in-cluster service instead
 # of routing through Cloudflare's publicly-trusted edge.
 apiVersion: trust.cert-manager.io/v1alpha1

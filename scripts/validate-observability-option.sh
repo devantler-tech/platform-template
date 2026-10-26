@@ -720,19 +720,6 @@ assert_opencost_resources_absent() {
   fi
 }
 
-# Verifies the exact number of rendered resources that reference OpenCost.
-assert_opencost_reference_count() {
-  local rendered_path="$1"
-  local expected="$2"
-  local actual
-
-  actual="$(opencost_reference_count "${rendered_path}")"
-  if [[ "${actual}" != "${expected}" ]]; then
-    echo "expected ${expected} OpenCost-referencing resource(s) in ${rendered_path}, found ${actual}" >&2
-    return 1
-  fi
-}
-
 # Verifies that both OpenCost resources and serialized references are absent.
 assert_opencost_absent() {
   local rendered_path="$1"
@@ -1059,8 +1046,13 @@ for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_de
   assert_security_exception_namespace_count "${rendered_path}" service-account-tokens observability 0
   assert_heartbeat_policy_exclusion_absent "${rendered_path}"
 done
-assert_opencost_reference_count "${local_apps_default}" 1
-assert_opencost_reference_count "${prod_apps_default}" 1
+# No default app consumes OpenCost. The demo apps prove each absence check
+# examined a real apps render rather than an empty one.
+for rendered_path in "${local_apps_default}" "${prod_apps_default}"; do
+  assert_resource_count "${rendered_path}" HelmRelease homepage homepage 1
+  assert_resource_count "${rendered_path}" HelmRelease whoami whoami 1
+  assert_opencost_absent "${rendered_path}"
+done
 
 render k8s/providers/docker/infrastructure-controllers-coroot/ "${docker_controllers}"
 render k8s/providers/docker/infrastructure-coroot/ "${docker_infrastructure}"
@@ -1305,7 +1297,7 @@ for config_path in ksail.yaml ksail.prod.yaml; do
 done
 for documented_boundary in \
   "This profile is transitional." \
-  "removes OpenCost and its Headlamp" \
+  "It enables Coroot, removes OpenCost," \
   "retires the legacy Loki and Alloy log path" \
   "stages one hardened \`cluster-heartbeat\` CronJob" \
   "uses a separate optional \`CLUSTER_HEARTBEAT_URL\` secret" \

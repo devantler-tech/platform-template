@@ -56,7 +56,7 @@ k8s/                    # All Kubernetes manifests
     bootstrap/          # Flux post-build substitution variables (base ConfigMap + SOPS secret)
     infrastructure/     # Organized by resource type: controllers/, certificates/, gateway/,
                         #   cluster-policies/, external-secrets/, alerts/, vault-*/ (OpenBao), etc.
-    apps/               # App deployments — whoami, homepage, headlamp
+    apps/               # App deployments — whoami, homepage
   components/           # Shared Kustomize components: HelmRelease defaults and drift detection
                         #   (listed by every HelmRelease-owning kustomization), plus the
                         #   opt-in profile transformations
