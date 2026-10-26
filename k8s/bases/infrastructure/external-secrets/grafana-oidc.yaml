@@ -15,7 +15,7 @@ spec:
   data:
     # Dex 'public-client' secret. Grafana does native OIDC against Dex
     # (auth.generic_oauth); this is the same shared confidential-client
-    # secret Headlamp/oauth2-proxy use.
+    # secret oauth2-proxy uses.
     - secretKey: client-secret
       remoteRef:
         key: infrastructure/oidc/dex

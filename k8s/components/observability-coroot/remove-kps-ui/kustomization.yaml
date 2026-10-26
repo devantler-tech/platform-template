@@ -83,20 +83,20 @@ patches:
     # first, after remove-opencost-references took OpenCost's), then Grafana's own.
     patch: |-
       - op: test
-        path: /spec/values/config/staticClients/0/redirectURIs/9
+        path: /spec/values/config/staticClients/0/redirectURIs/8
         value: "https://prometheus.${domain}/oauth2/callback"
       - op: remove
-        path: /spec/values/config/staticClients/0/redirectURIs/9
+        path: /spec/values/config/staticClients/0/redirectURIs/8
       - op: test
-        path: /spec/values/config/staticClients/0/redirectURIs/6
+        path: /spec/values/config/staticClients/0/redirectURIs/5
         value: "https://alertmanager.${domain}/oauth2/callback"
       - op: remove
-        path: /spec/values/config/staticClients/0/redirectURIs/6
+        path: /spec/values/config/staticClients/0/redirectURIs/5
       - op: test
-        path: /spec/values/config/staticClients/0/redirectURIs/4
+        path: /spec/values/config/staticClients/0/redirectURIs/3
         value: "https://grafana.${domain}/login/generic_oauth"
       - op: remove
-        path: /spec/values/config/staticClients/0/redirectURIs/4
+        path: /spec/values/config/staticClients/0/redirectURIs/3
   - target:
       version: v1
       kind: ConfigMap

@@ -33,7 +33,6 @@ controllers to save resources (noted inline).
 ### Demo apps
 
 - **Homepage** — a dashboard landing page for the platform
-- **Headlamp** — a Kubernetes web UI
 - **whoami** — a tiny debug echo service
 
 They are deliberately lightweight, so a new platform has something to look at. To run **your own**

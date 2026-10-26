@@ -3,9 +3,9 @@
 # Many controllers, sidecars, and init containers do not expose health
 # endpoints. Adding probes to upstream charts is impractical and they
 # typically have their own readiness mechanisms (leader election, watch
-# loops). App namespaces (headlamp, homepage) are included because their
-# charts deploy init containers and sidecars that lack probe endpoints,
-# while main application containers have probes configured.
+# loops). The homepage app namespace is included because its chart
+# deploys init containers and sidecars that lack probe endpoints, while
+# the main application container has probes configured.
 apiVersion: kubescape.io/v1beta1
 kind: ClusterSecurityException
 metadata:
@@ -42,7 +42,6 @@ spec:
             - external-dns
             - kubelet-serving-cert-approver
             - opencost
-            - headlamp
             - kubevirt
             - cdi
             - dex

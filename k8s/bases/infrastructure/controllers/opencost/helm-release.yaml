@@ -27,7 +27,7 @@ spec:
     # deploy gate (.github/actions/check-event-warnings) even though it is
     # harmless. Two mitigations:
     #   1. maxUnavailable: 0 — surge the new pod to Ready before the old is
-    #      terminated (matches the homepage/headlamp convention).
+    #      terminated (matches the homepage convention).
     #   2. preStop.sleep — keep the opencost container serving :9003 for 15s
     #      after it is marked for deletion, so kubelet's probes during drain
     #      land on a live endpoint instead of a torn-down route. Native sleep
@@ -127,7 +127,7 @@ spec:
             # scheduler reserves real baseline and the pod isn't first to be
             # evicted under node memory pressure.
             memory: 128Mi
-          # 256Mi OOM-killed when Headlamp issued the 14d allocation queries —
+          # 256Mi OOM-killed under 14-day allocation queries —
           # the cost-model engine holds the full window in memory while
           # aggregating. 512Mi gives ~4× headroom over the request and is
           # still well under the chart's 1Gi default.

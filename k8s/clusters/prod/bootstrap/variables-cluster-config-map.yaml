@@ -38,9 +38,7 @@ data:
   # KEDA-managed apps: HelmRelease replicas are the initial value only;
   # KEDA HTTPScaledObject overrides at runtime. Setting the initial to 1
   # saves memory until the first KEDA reconciliation.
-  # headlamp: min 0, max 1 (OIDC state in-memory — must stay single-pod)
   # whoami: min 0, max 2
-  headlamp_replicas: "1"
   whoami_replicas: "1"
   hubble_ui_replicas: "1"
   # Auth chain: 2 replicas for HA during VPA evictions (prevents 502s).
