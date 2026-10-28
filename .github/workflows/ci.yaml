@@ -13,7 +13,7 @@ concurrency:
 jobs:
   native-source-probe:
     name: Native shared-action source probe
-    uses: devantler-tech/.github/.github/workflows/dependency-review.yaml@db09732f877eb4d0538ab03c8ab60360f7af6911
+    uses: devantler-tech/.github/.github/workflows/dependency-review.yaml@d43ddc20bf900a1c61200f5dd0de9d695c089152
     permissions:
       contents: read
     with:
