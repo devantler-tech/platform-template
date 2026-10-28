@@ -252,11 +252,20 @@ assert_coroot_heartbeat_contract() {
   local heartbeat_egress_contract
   local coroot_selector_contract
   local heartbeat_selecting_policy_count
+  local source_image
+
+  # The reviewed manifest owns the dependency pin; enforce its immutable shape
+  # and compare the render to it so Renovate updates need only one version edit.
+  source_image="$(yq -r '.spec.jobTemplate.spec.template.spec.containers[] | select(.name == "heartbeat") | .image' "${repo_root}/k8s/bases/apps/cluster-heartbeat/cron-job.yaml")"
+  if [[ ! "${source_image}" =~ ^docker\.io/curlimages/curl:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$ ]]; then
+    echo "heartbeat source must pin the curlimages/curl release and its SHA-256 digest" >&2
+    return 1
+  fi
 
   heartbeat_count="$(resource_count "${rendered_path}" CronJob observability cluster-heartbeat)"
   cronjob_contract="$(
     yq eval-all -o=json '.' "${rendered_path}" |
-      jq -s '[.[] |
+      jq -s --arg source_image "${source_image}" '[.[] |
         select(.kind == "CronJob" and .metadata.namespace == "observability" and .metadata.name == "cluster-heartbeat") |
         select(.spec.schedule == "*/5 * * * *") |
         select(.spec.concurrencyPolicy == "Forbid") |
@@ -274,7 +283,7 @@ assert_coroot_heartbeat_contract() {
         select($pod.containers | length == 1) |
         $pod.containers[0] as $container |
         select($container.name == "heartbeat") |
-        select($container.image == "docker.io/curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13") |
+        select($container.image == $source_image) |
         select($container.command == [
           "/bin/sh",
           "-c"

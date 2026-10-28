@@ -54,6 +54,9 @@ jobs:
           sudo install /tmp/ksail /usr/local/bin/ksail
           ksail --version
 
+      - name: 🧪 Validate heartbeat image contract
+        run: ./scripts/tests/test-heartbeat-image-contract.sh
+
       - name: 🔭 Validate default-off observability option
         # Coroot stays absent from the default provider paths. The validator also
         # renders the explicit local/prod profiles selected through KSail.
