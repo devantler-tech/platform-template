@@ -16,7 +16,7 @@ spec:
   chart:
     spec:
       chart: alloy
-      version: 1.14.1
+      version: 1.14.2
       # Reuses the `grafana` HelmRepository defined in the loki/ controller
       # directory (same namespace). Both Loki and Alloy come from
       # https://grafana.github.io/helm-charts, and Flux dedups source
