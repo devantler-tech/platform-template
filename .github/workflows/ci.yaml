@@ -428,11 +428,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: [changes, validate-naming, system-test, deploy-prod, validate-retired-links]
     if: always()
-    permissions: {}
+    permissions:
+      actions: read
     steps:
       - name: 📊 Evaluate job results
-        uses: devantler-tech/.github/actions/aggregate-job-checks@d513d0069c20cd8f037c0cb42eadf73268ac14f4 # v14.0.0
+        uses: devantler-tech/.github/actions/aggregate-job-checks@da5f0839b418626a8a0b69df1f04ba931a38e371 # v19.1.0
         with:
+          check-workflow-startup: "true"
           job-results: >-
             ${{ needs.changes.result }}
             ${{ needs.validate-naming.result }}
