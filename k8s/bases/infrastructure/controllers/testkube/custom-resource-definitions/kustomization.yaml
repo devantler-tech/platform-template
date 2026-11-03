@@ -14,3 +14,17 @@ resources:
   - testworkflows.testkube.io_testworkflowexecutions.yaml
   - testworkflows.testkube.io_testworkflows.yaml
   - testworkflows.testkube.io_testworkflowtemplates.yaml
+# Step 1 of handing these CRDs to the Testkube chart alone (#263). The chart already renders all of
+# them, so these vendored copies are a second owner, to be removed in a later release. Before that,
+# Flux must be unable to prune the live CRDs: with `prune: true`, deleting the files would make Flux
+# delete the CRDs and, with them, every Testkube resource on an existing platform before Helm
+# recreates the empty definitions. Flux skips the prune only when the LIVE object carries this
+# annotation, so it has to reach clusters one release ahead of the removal.
+patches:
+  - target:
+      group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    patch: |-
+      - op: add
+        path: /metadata/annotations/kustomize.toolkit.fluxcd.io~1prune
+        value: disabled
