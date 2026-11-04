@@ -220,7 +220,7 @@ jobs:
         # Shared composite — single source of truth for Flux failure diagnostics
         # (devantler-tech/actions#367). Default kustomizations match this job's
         # previous inline list (infrastructure-controllers infrastructure apps).
-        uses: devantler-tech/.github/actions/diagnose-flux@d513d0069c20cd8f037c0cb42eadf73268ac14f4 # v14.0.0
+        uses: devantler-tech/.github/actions/diagnose-flux@3f0791b9b2f435133d13980e918ac8f2f361c519 # v20.1.4
 
       - name: 🔥 Delete cluster
         if: always()
@@ -421,7 +421,7 @@ jobs:
         # Jobs) that previously only the system-test path emitted. kubectl uses
         # the Talos cert-based admin@prod kubeconfig, so no HCLOUD_TOKEN is
         # needed by the diagnostics themselves.
-        uses: devantler-tech/.github/actions/diagnose-flux@d513d0069c20cd8f037c0cb42eadf73268ac14f4 # v14.0.0
+        uses: devantler-tech/.github/actions/diagnose-flux@3f0791b9b2f435133d13980e918ac8f2f361c519 # v20.1.4
 
   ci-required-checks:
     name: CI - Required Checks
