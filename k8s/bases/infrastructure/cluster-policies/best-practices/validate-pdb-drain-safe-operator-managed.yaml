@@ -1,0 +1,36 @@
+# The consumer exclusion for the shared catalog's validate-pdb-drain-safe
+# (devantler-tech/kyverno-policies, pinned in ../kustomization.yaml). The
+# catalog policy audits every PodDisruptionBudget that sets minAvailable; it
+# leaves operator- and installer-owned PDBs for the consumer to exempt.
+#
+# Exempt here, each scoped by namespace AND name (never name alone):
+#   * CloudNativePG clusters -- the operator owns drain-safety for their PDBs;
+#   * PDBs KSail installs with their chart defaults before Flux takes over:
+#     cert-manager, metrics-server, the Kyverno admission controller and the
+#     Hetzner CSI controller. Flipping them to maxUnavailable would conflict at
+#     server-side apply ("minAvailable and maxUnavailable cannot be both set");
+#   * Longhorn's own instance-manager and CSI PDBs in longhorn-system.
+# Every PDB the template itself owns uses the drain-safe maxUnavailable: 1.
+apiVersion: policies.kyverno.io/v1
+kind: PolicyException
+metadata:
+  name: validate-pdb-drain-safe-operator-managed
+  namespace: kyverno
+spec:
+  policyRefs:
+    - name: validate-pdb-drain-safe
+      kind: ValidatingPolicy
+  matchConditions:
+    - name: operator-managed
+      expression: >-
+        'cnpg.io/cluster' in object.metadata.?labels.orValue({}) ||
+        (object.metadata.?namespace.orValue('') == 'cert-manager' &&
+          object.metadata.name in [
+            'cert-manager', 'cert-manager-webhook', 'cert-manager-cainjector']) ||
+        (object.metadata.?namespace.orValue('') == 'kube-system' &&
+          object.metadata.name in ['metrics-server', 'hcloud-csi-controller']) ||
+        (object.metadata.?namespace.orValue('') == 'kyverno' &&
+          object.metadata.name == 'kyverno-admission-controller') ||
+        (object.metadata.?namespace.orValue('') == 'longhorn-system' &&
+          (object.metadata.name.matches('^instance-manager-.+$') ||
+           object.metadata.name in ['csi-attacher', 'csi-provisioner']))

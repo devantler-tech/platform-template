@@ -27,7 +27,8 @@ spec:
       runAsUser: 65534
     podDisruptionBudget:
       enabled: true
-      minAvailable: 1
+      # Drain-safe PDB pattern (validate-pdb-drain-safe).
+      maxUnavailable: 1
     topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: kubernetes.io/hostname

@@ -51,4 +51,7 @@ spec:
           group: com.stakater.platform
       podDisruptionBudget:
         enabled: true
-        minAvailable: 1
+        # Drain-safe PDB pattern (validate-pdb-drain-safe): maxUnavailable: 1
+        # keeps the node drainable at any replica count, including a
+        # one-replica local installation.
+        maxUnavailable: 1

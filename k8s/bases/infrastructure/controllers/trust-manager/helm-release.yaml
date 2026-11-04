@@ -28,7 +28,8 @@ spec:
       enabled: true
     podDisruptionBudget:
       enabled: true
-      minAvailable: 1
+      # Drain-safe PDB pattern (validate-pdb-drain-safe).
+      maxUnavailable: 1
     replicaCount: ${trust_manager_replicas:=2}
     topologySpreadConstraints:
       - maxSkew: 1

@@ -43,7 +43,9 @@ spec:
       name: kube-dns
       clusterIP: 10.96.0.10
     podDisruptionBudget:
-      minAvailable: 1
+      # Drain-safe PDB pattern (validate-pdb-drain-safe): never blocks a node
+      # drain, whatever the replica count.
+      maxUnavailable: 1
     resources:
       limits:
         memory: 170Mi

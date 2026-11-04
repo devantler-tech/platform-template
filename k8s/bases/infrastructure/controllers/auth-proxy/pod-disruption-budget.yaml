@@ -4,7 +4,11 @@ metadata:
   name: auth-proxy
   namespace: oauth2-proxy
 spec:
-  minAvailable: 1
+  # maxUnavailable: 1 is the drain-safe PDB pattern (validate-pdb-drain-safe):
+  # it keeps the node drainable at any replica count and still bounds disruption
+  # to one pod at a time. minAvailable: 1 over a single ready replica permits
+  # zero voluntary evictions and makes the hosting node undrainable.
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: auth-proxy

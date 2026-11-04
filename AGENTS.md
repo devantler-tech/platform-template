@@ -116,6 +116,7 @@ applies Flux variable substitution, and does **not** start a cluster):
 ```bash
 ./scripts/validate-shared-cluster-policies.sh
 ./scripts/validate-shared-auto-vpa-policy.sh
+./scripts/tests/test-drain-safety-policies.sh
 ./scripts/validate-recommended-labels-option.sh
 ksail --config ksail.yaml workload validate
 ksail --config ksail.prod.yaml workload validate
@@ -127,7 +128,10 @@ revision and retains its expected mutation contract. The workload-sizing gate
 verifies that sizing comes only from the pinned catalog `auto-vpa` GeneratingPolicy
 form and never from the classic ClusterPolicy next to it. The recommended-label gate
 proves the separate opt-in profiles preserve default absence and the reviewed
-label-mutation contract.
+label-mutation contract. The drain-safety gate holds the pinned catalog
+`validate-pdb-drain-safe` policy, its consumer exception and the replica floor
+and ceiling to Audit-only, and fails on any template-owned PodDisruptionBudget
+that sets `minAvailable` (use `maxUnavailable: 1`, which never deadlocks a drain).
 
 Fallback without KSail (both overlays MUST build — `kubectl` has Kustomize built in;
 standalone `kustomize` may not be installed):
