@@ -1,0 +1,96 @@
+# Flags any controller or autoscaler ceiling that would run MORE than 3 pods of
+# one Deployment, StatefulSet or ReplicaSet -- the inverse of
+# validate-replica-floor, which together bound each workload's pod count:
+# floor 2, ceiling 3. Past 3 right-sized replicas, growth is the VERTICAL
+# axis's job -- auto-vpa raises per-pod CPU/memory in place up to maxAllowed --
+# so extra pods only multiply fixed per-pod overhead. Ported from the reference
+# platform (devantler-tech/platform) policy of the same name.
+#
+# A PodDisruptionBudget CANNOT express this: a PDB gates voluntary EVICTIONS and
+# never caps how many pods a controller creates. The ceiling therefore lives on
+# workload spec.replicas and on the autoscaler ceilings (HPA maxReplicas,
+# ScaledObject maxReplicaCount), which is exactly what this policy audits.
+#
+# Audit, not Enforce: replica counts are owned by KEDA and the HPA controller at
+# runtime, and an admission deny would fight them mid-scale. Violations surface
+# in Kyverno's PolicyReports for a human to fix (or exempt) deliberately.
+# DaemonSets are out of scope by construction: their pod count is the node
+# count. A workload that genuinely needs more pods opts out with the label
+# platform.devantler.tech/replica-ceiling: exempt.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: validate-replica-ceiling
+  annotations:
+    policies.kyverno.io/title: Validate Replica Ceiling
+    policies.kyverno.io/category: Best Practices, Autoscaling
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Deployment, StatefulSet, ReplicaSet, HorizontalPodAutoscaler, ScaledObject
+    policies.kyverno.io/minversion: 1.17.0
+    policies.kyverno.io/description: >-
+      Flags workloads declaring more than 3 replicas and autoscalers whose
+      ceiling exceeds 3. The platform scales vertically first (auto-vpa, up to
+      maxAllowed) and horizontally only to 3 pods per workload. Intentional
+      exceptions opt out with the
+      platform.devantler.tech/replica-ceiling: exempt label.
+spec:
+  validationActions:
+    - Audit
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "replicasets"]
+      - apiGroups: ["autoscaling"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["horizontalpodautoscalers"]
+      - apiGroups: ["keda.sh"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["scaledobjects"]
+  variables:
+    # Durable opt-out on the workload or autoscaler itself. Like the pod-template
+    # opt-out below it is checked inside the validations, not as a
+    # matchCondition, so a newly exempted object gets a current passing result.
+    - name: labelExempt
+      expression: >-
+        object.metadata.?labels[?'platform.devantler.tech/replica-ceiling'].orValue('') == 'exempt'
+    # Durable opt-out on the pod template (charts expose podLabels more widely
+    # than top-level workload labels). It is checked inside the validation, not
+    # as a matchCondition, so a newly exempted workload gets a current passing
+    # result instead of keeping its old failure.
+    - name: templateExempt
+      expression: >-
+        object.?spec.?template.?metadata.?labels[?'platform.devantler.tech/replica-ceiling'].orValue('') == 'exempt'
+    - name: isWorkload
+      expression: object.kind in ['Deployment', 'StatefulSet', 'ReplicaSet']
+    - name: replicas
+      expression: object.spec.?replicas.orValue(1)
+    # KEDA defaults maxReplicaCount to 100 when unset, so an unset ceiling is
+    # itself a violation.
+    - name: scaledObjectCeiling
+      expression: object.spec.?maxReplicaCount.orValue(100)
+  validations:
+    - expression: "variables.labelExempt || !variables.isWorkload || variables.templateExempt || variables.replicas <= 3"
+      messageExpression: >-
+        object.kind + " '" + object.metadata.name + "' declares " +
+        string(variables.replicas) + " replicas; the platform ceiling is 3 pods
+        per workload — scale vertically instead (auto-vpa raises per-pod
+        resources up to maxAllowed). If this workload genuinely needs more pods,
+        add the label 'platform.devantler.tech/replica-ceiling: exempt'."
+    - expression: "variables.labelExempt || object.kind != 'HorizontalPodAutoscaler' || object.spec.maxReplicas <= 3"
+      messageExpression: >-
+        "HorizontalPodAutoscaler '" + object.metadata.name + "' allows scaling to " +
+        string(object.spec.maxReplicas) + " replicas; the platform ceiling is 3
+        pods per workload (scale vertically first — see auto-vpa)."
+    - expression: "variables.labelExempt || object.kind != 'ScaledObject' || variables.scaledObjectCeiling <= 3"
+      messageExpression: >-
+        "ScaledObject '" + object.metadata.name + "' allows scaling to " +
+        string(variables.scaledObjectCeiling) + " replicas (KEDA defaults to 100
+        when maxReplicaCount is unset); the platform ceiling is 3 pods per
+        workload (scale vertically first — see auto-vpa)."

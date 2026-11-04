@@ -14,7 +14,13 @@ resources:
   - best-practices/disable-default-sa-automount.yaml
   - best-practices/restrict-tenant-secret-stores.yaml
   - best-practices/validate-host-restrictions.yaml
+  # Consumer exclusion for the shared validate-pdb-drain-safe pinned below.
+  - best-practices/validate-pdb-drain-safe-operator-managed.yaml
   - best-practices/validate-pod-security.yaml
+  # Replica band (Audit): floor 2 so drain-safe PDBs keep a pod serving,
+  # ceiling 3 so growth goes vertical (auto-vpa) first.
+  - best-practices/validate-replica-ceiling.yaml
+  - best-practices/validate-replica-floor.yaml
   - flux/enforce-flux-best-practices.yaml
   - flux/helm-release-enable-tests.yaml
   - flux/helm-release-install-crds.yaml
@@ -22,6 +28,7 @@ resources:
   - https://raw.githubusercontent.com/devantler-tech/kyverno-policies/ffff4f152f3efd940cc78d56d257925592409ce1/policies/best-practices/disallow-latest-tag.yaml
   - https://raw.githubusercontent.com/devantler-tech/kyverno-policies/fd5fe3e8bb837ed6fecbd70dfdc59df1b94672c1/policies/flux/helm-release-remediation-retries.yaml
   - https://raw.githubusercontent.com/devantler-tech/kyverno-policies/af8d7711e8f7337b647e686c21816134976084f7/policies/best-practices/auto-vpa-generating-policy.yaml
+  - https://raw.githubusercontent.com/devantler-tech/kyverno-policies/9e47b337fc0fec7cd7ae04b5ac09e1e61ccab55e/policies/best-practices/validate-pdb-drain-safe.yaml
   # Upstream kyverno/policies samples (vendored locally; patched below)
   - samples/best-practices/add-ns-quota/add-ns-quota.yaml
   - samples/other/create-pod-antiaffinity/create-pod-antiaffinity.yaml

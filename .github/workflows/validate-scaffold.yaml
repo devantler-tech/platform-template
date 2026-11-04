@@ -73,6 +73,12 @@ jobs:
         # rules override the allow policies that must reopen required traffic.
         run: ./scripts/tests/test-default-deny-shape.sh
 
+      - name: 🧯 Validate drain-safety policies
+        # The catalog drain-safe PDB policy, its consumer exception and the
+        # replica floor and ceiling stay Audit-only, and no template-owned
+        # PodDisruptionBudget sets minAvailable (platform-template#67).
+        run: ./scripts/tests/test-drain-safety-policies.sh
+
       - name: 🏷️ Validate default-off recommended workload labels
         # Existing instances keep their default paths. Exercise the explicit
         # profiles and the exact immutable shared-policy contract.

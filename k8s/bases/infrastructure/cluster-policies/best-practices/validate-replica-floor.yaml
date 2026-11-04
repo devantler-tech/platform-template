@@ -1,0 +1,102 @@
+# Flags Deployments and StatefulSets running fewer than 2 replicas, so the
+# drain-safe maxUnavailable: 1 PodDisruptionBudgets (validate-pdb-drain-safe)
+# actually preserve availability: 2 replicas + topology spread (spread-pods)
+# keep one pod serving through a node drain. 1 is a single point of failure the
+# PDB can't protect. Ported from the reference platform (devantler-tech/platform)
+# policy of the same name, with its exemptions narrowed to what this template
+# scaffolds; validate-replica-ceiling is the matching upper bound.
+#
+# Audit, not Enforce: .spec.replicas is owned by KEDA (request-rate autoscaling)
+# and leader-election operators -- mutating it would fight those controllers and
+# cause perpetual drift. This surfaces single-replica workloads in Kyverno's
+# PolicyReports for a human to raise (or exempt) deliberately.
+#
+# Exemptions are part of the validation expression, so an exempt workload gets a
+# current `pass` result. Neither a narrower match scope nor a false
+# matchCondition writes a result, so either could leave an older `fail` in place
+# after the exemption is added.
+#
+# Exemption categories:
+#   * the opt-out label platform.devantler.tech/replica-floor: exempt on the
+#     workload OR its pod template -- the durable, self-documenting escape hatch
+#     for any new singleton / scale-to-zero / operator-managed workload;
+#   * namespaces whose workloads genuinely can't or needn't run 2: velero (chart
+#     hardcodes replicas: 1, no leader election), flux controllers, Coroot
+#     (observability), kubescape (single-replica scanner control plane, off
+#     every serving path) and the local-only minio object store;
+#   * scale-to-zero and single-replica-only workloads: whoami (KEDA scales it to
+#     zero), the Hubble and Longhorn UIs, external-dns (>1 = duplicate DNS
+#     writes) and origin-ca-issuer;
+#   * lean leader-election controllers off every serving path (VPA
+#     recommender/updater, Kyverno reports/cleanup, the KEDA metrics API server,
+#     the Longhorn driver deployer, the SPIRE server): a single replica only
+#     delays reconciliation or reporting, never user traffic.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: validate-replica-floor
+  annotations:
+    policies.kyverno.io/title: Validate Replica Floor
+    policies.kyverno.io/category: Best Practices, High Availability
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Deployment, StatefulSet
+    policies.kyverno.io/minversion: 1.17.0
+    policies.kyverno.io/description: >-
+      Flags Deployments and StatefulSets running fewer than 2 replicas so their
+      drain-safe PDBs actually preserve availability. Workloads that are
+      intentionally singleton, scale-to-zero or controller-managed opt out with
+      the platform.devantler.tech/replica-floor: exempt label.
+spec:
+  validationActions:
+    - Audit
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets"]
+  variables:
+    # Durable opt-out on the workload itself.
+    - name: workloadExempt
+      expression: >-
+        object.metadata.?labels[?'platform.devantler.tech/replica-floor'].orValue('') == 'exempt'
+    # Durable opt-out on the pod template (charts expose podLabels more
+    # widely than top-level workload labels).
+    - name: templateExempt
+      expression: >-
+        object.spec.?template.?metadata.?labels[?'platform.devantler.tech/replica-floor'].orValue('') == 'exempt'
+    - name: namespaceExempt
+      expression: >-
+        object.metadata.?namespace.orValue('') in [
+          'velero', 'flux-system', 'observability', 'kubescape', 'minio']
+    # Named exemptions, one list per reason: scale-to-zero apps and
+    # single-replica UIs; single-writer controllers; lean leader-election
+    # controllers whose outage delays only an idempotent loop.
+    - name: namedExempt
+      expression: >-
+        object.metadata.name in ['whoami', 'hubble-ui', 'longhorn-ui'] ||
+        object.metadata.name in ['external-dns', 'origin-ca-issuer'] ||
+        object.metadata.name in [
+          'vertical-pod-autoscaler-vpa-recommender',
+          'vertical-pod-autoscaler-vpa-updater',
+          'kyverno-reports-controller', 'kyverno-cleanup-controller',
+          'keda-operator-metrics-apiserver', 'longhorn-driver-deployer',
+          'spire-server']
+    - name: exempt
+      expression: >-
+        variables.workloadExempt || variables.templateExempt ||
+        variables.namespaceExempt || variables.namedExempt
+    # An unset replica count defaults to 1; an explicit 0 stays 0.
+    - name: replicas
+      expression: object.spec.?replicas.orValue(1)
+  validations:
+    - expression: "variables.exempt || variables.replicas >= 2"
+      messageExpression: >-
+        object.kind + " '" + object.metadata.name + "' runs " +
+        string(variables.replicas) + " replica(s); the replica floor is 2 so
+        its maxUnavailable: 1 PDB keeps it available through a node drain. If
+        it is intentionally singleton, scale-to-zero or controller-managed, add
+        the label 'platform.devantler.tech/replica-floor: exempt'."

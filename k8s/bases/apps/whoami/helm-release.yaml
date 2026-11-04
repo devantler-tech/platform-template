@@ -21,7 +21,10 @@ spec:
     replicaCount: ${whoami_replicas:=2}
     pdb:
       create: true
-      minAvailable: 0
+      # Drain-safe PDB pattern (validate-pdb-drain-safe), as on the reference
+      # platform: unset the chart's minAvailable so only maxUnavailable renders.
+      minAvailable: null
+      maxUnavailable: 1
     podSecurityContext:
       runAsUser: 65534
       runAsGroup: 65534

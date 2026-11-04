@@ -66,4 +66,4 @@ spec:
           drop:
             - ALL
       podDisruptionBudget:
-        minAvailable: 1
+        maxUnavailable: 1
