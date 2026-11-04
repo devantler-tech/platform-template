@@ -4,7 +4,10 @@ metadata:
   name: homepage
   namespace: homepage
 spec:
-  minAvailable: 1
+  # maxUnavailable: 1 is the drain-safe PDB pattern (validate-pdb-drain-safe):
+  # it keeps the node drainable at any replica count and still bounds disruption
+  # to one pod at a time.
+  maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: homepage

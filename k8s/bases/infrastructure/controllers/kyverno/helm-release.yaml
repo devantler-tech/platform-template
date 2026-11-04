@@ -19,6 +19,14 @@ spec:
         name: kyverno
   # https://github.com/kyverno/kyverno/blob/main/charts/kyverno/values.yaml
   values:
+    # Honour PolicyExceptions, but only from the kyverno namespace (writable by
+    # cluster admins and Flux alone), so a tenant cannot exempt itself. The
+    # shared catalog policies take their consumer exclusions this way, e.g.
+    # cluster-policies/best-practices/validate-pdb-drain-safe-operator-managed.yaml.
+    features:
+      policyExceptions:
+        enabled: true
+        namespace: kyverno
     # Restricted PSS baseline: kyverno's mutation policies exclude the kyverno namespace,
     # so we must set pod-level seccompProfile + runAsNonRoot via chart values.
     admissionController:

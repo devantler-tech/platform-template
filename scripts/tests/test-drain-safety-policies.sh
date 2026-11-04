@@ -49,22 +49,37 @@ policies_ok() {
         | ($p | length) == 1 and $p[0].spec.validationActions == ["Audit"])))
     and (one("PolicyException"; "validate-pdb-drain-safe-operator-managed") as $e
       | ($e | length) == 1
+        and $e[0].metadata.namespace == "kyverno"
         and $e[0].spec.policyRefs == [{name: "validate-pdb-drain-safe", kind: "ValidatingPolicy"}])
   ' >/dev/null
 }
 
-# True when no rendered PodDisruptionBudget sets minAvailable and no HelmRelease
-# value sets a non-null minAvailable outside the allow-list.
+# True when the rendered payloads hold at least one HelmRelease, no rendered
+# PodDisruptionBudget sets minAvailable, and no HelmRelease value (the values
+# root included) sets a non-null minAvailable outside the allow-list.
 pdbs_drain_safe() {
-  yq eval-all -o=json '.' "$1" | jq -s -e --argjson allowed "${allowed_min_available}" '
-    ([.[] | select(type == "object" and .kind == "PodDisruptionBudget"
+  yq eval-all -o=json '.' "$@" | jq -s -e --argjson allowed "${allowed_min_available}" '
+    ([.[] | select(type == "object" and .kind == "HelmRelease")] | length) > 0
+    and ([.[] | select(type == "object" and .kind == "PodDisruptionBudget"
       and .spec.minAvailable != null)] | length) == 0
     and ([.[] | select(type == "object" and .kind == "HelmRelease")
       | .metadata.name as $n | (.spec.values // {}) as $v
-      | $v | paths(objects) as $p
+      | ([[]] + [$v | paths(objects)])[] as $p
       | select($v | getpath($p) | .minAvailable? != null)
       | $n + ":" + ($p | map(tostring) | join("."))
       | select(. as $k | $allowed | index($k) | not)] | length) == 0
+  ' >/dev/null
+}
+
+# True when Kyverno honours PolicyExceptions, and only from the kyverno
+# namespace the consumer exception lives in. The chart default leaves them off,
+# which would silently ignore the exception at admission.
+exceptions_honoured() {
+  yq eval-all -o=json '.' "$1" | jq -s -e '
+    [.[] | select(type == "object" and .kind == "HelmRelease"
+      and .metadata.namespace == "kyverno" and .metadata.name == "kyverno")] as $k
+    | ($k | length) == 1
+      and $k[0].spec.values.features.policyExceptions == {enabled: true, namespace: "kyverno"}
   ' >/dev/null
 }
 
@@ -75,17 +90,23 @@ source_count="$(grep -E -c -- "${catalog_source}" "${kustomization}" || true)"
 for provider in docker hetzner; do
   infrastructure="${tmp_dir}/${provider}-infrastructure.yaml"
   controllers="${tmp_dir}/${provider}-controllers.yaml"
+  apps="${tmp_dir}/${provider}-apps.yaml"
   kubectl kustomize "${repo_root}/k8s/providers/${provider}/infrastructure/" >"${infrastructure}"
   kubectl kustomize "${repo_root}/k8s/providers/${provider}/infrastructure/controllers/" >"${controllers}"
+  kubectl kustomize "${repo_root}/k8s/providers/${provider}/apps/" >"${apps}"
 
   policies_ok "${infrastructure}" ||
     fail "${provider}: drain-safety policies missing, duplicated or not Audit-only"
+  exceptions_honoured "${controllers}" ||
+    fail "${provider}: Kyverno does not honour PolicyExceptions from the kyverno namespace"
   pdbs_drain_safe "${controllers}" ||
-    fail "${provider}: a template-owned PodDisruptionBudget sets minAvailable"
+    fail "${provider}: a template-owned controller PodDisruptionBudget sets minAvailable"
+  pdbs_drain_safe "${apps}" ||
+    fail "${provider}: a template-owned app PodDisruptionBudget sets minAvailable"
 
   if [[ "${provider}" == "docker" ]]; then
     mutated="${tmp_dir}/${provider}-deny.yaml"
-    yq eval-all '(select(.kind == "ValidatingPolicy" and .metadata.name == "validate-replica-floor").spec.validationActions) = ["Deny"]' \
+    yq eval-all 'with(select(.kind == "ValidatingPolicy" and .metadata.name == "validate-replica-floor"); .spec.validationActions = ["Deny"])' \
       "${infrastructure}" >"${mutated}"
     ! policies_ok "${mutated}" || fail "negative control passed with the replica floor set to Deny"
 
@@ -93,15 +114,27 @@ for provider in docker hetzner; do
     yq eval-all 'select(.kind != "PolicyException")' "${infrastructure}" >"${mutated}"
     ! policies_ok "${mutated}" || fail "negative control passed without the consumer PolicyException"
 
-    mutated="${tmp_dir}/${provider}-min-available.yaml"
-    yq eval-all '(select(.kind == "PodDisruptionBudget") | .spec.minAvailable) = 1' \
+    mutated="${tmp_dir}/${provider}-exceptions-off.yaml"
+    yq eval-all 'with(select(.kind == "HelmRelease" and .metadata.name == "kyverno"); .spec.values.features.policyExceptions.enabled = false)' \
       "${controllers}" >"${mutated}"
-    ! pdbs_drain_safe "${mutated}" || fail "negative control passed with a minAvailable PodDisruptionBudget"
+    ! exceptions_honoured "${mutated}" || fail "negative control passed with PolicyExceptions disabled"
+
+    mutated="${tmp_dir}/${provider}-min-available.yaml"
+    yq eval-all 'with(select(.kind == "PodDisruptionBudget"); .spec.minAvailable = 1)' \
+      "${apps}" >"${mutated}"
+    ! pdbs_drain_safe "${mutated}" || fail "negative control passed with a minAvailable app PodDisruptionBudget"
 
     mutated="${tmp_dir}/${provider}-helm-min-available.yaml"
-    yq eval-all '(select(.kind == "HelmRelease" and .metadata.name == "reloader") | .spec.values.reloader.deployment.pdb.minAvailable) = 1' \
+    yq eval-all 'with(select(.kind == "HelmRelease" and .metadata.name == "reloader"); .spec.values.reloader.deployment.pdb.minAvailable = 1)' \
       "${controllers}" >"${mutated}"
     ! pdbs_drain_safe "${mutated}" || fail "negative control passed with a minAvailable HelmRelease value"
+
+    mutated="${tmp_dir}/${provider}-root-min-available.yaml"
+    yq eval-all 'with(select(.kind == "HelmRelease" and .metadata.name == "reloader"); .spec.values.minAvailable = 1)' \
+      "${controllers}" >"${mutated}"
+    ! pdbs_drain_safe "${mutated}" || fail "negative control passed with a root-level minAvailable HelmRelease value"
+
+    ! pdbs_drain_safe /dev/null || fail "negative control passed on an empty render"
   fi
 done
 

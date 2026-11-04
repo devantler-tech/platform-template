@@ -53,12 +53,13 @@ spec:
         apiVersions: ["*"]
         operations: ["CREATE", "UPDATE"]
         resources: ["scaledobjects"]
-  matchConditions:
-    # Durable opt-out: label the workload or autoscaler itself.
-    - name: not-exempt
-      expression: >-
-        object.metadata.?labels[?'platform.devantler.tech/replica-ceiling'].orValue('') != 'exempt'
   variables:
+    # Durable opt-out on the workload or autoscaler itself. Like the pod-template
+    # opt-out below it is checked inside the validations, not as a
+    # matchCondition, so a newly exempted object gets a current passing result.
+    - name: labelExempt
+      expression: >-
+        object.metadata.?labels[?'platform.devantler.tech/replica-ceiling'].orValue('') == 'exempt'
     # Durable opt-out on the pod template (charts expose podLabels more widely
     # than top-level workload labels). It is checked inside the validation, not
     # as a matchCondition, so a newly exempted workload gets a current passing
@@ -75,19 +76,19 @@ spec:
     - name: scaledObjectCeiling
       expression: object.spec.?maxReplicaCount.orValue(100)
   validations:
-    - expression: "!variables.isWorkload || variables.templateExempt || variables.replicas <= 3"
+    - expression: "variables.labelExempt || !variables.isWorkload || variables.templateExempt || variables.replicas <= 3"
       messageExpression: >-
         object.kind + " '" + object.metadata.name + "' declares " +
         string(variables.replicas) + " replicas; the platform ceiling is 3 pods
         per workload — scale vertically instead (auto-vpa raises per-pod
         resources up to maxAllowed). If this workload genuinely needs more pods,
         add the label 'platform.devantler.tech/replica-ceiling: exempt'."
-    - expression: "object.kind != 'HorizontalPodAutoscaler' || object.spec.maxReplicas <= 3"
+    - expression: "variables.labelExempt || object.kind != 'HorizontalPodAutoscaler' || object.spec.maxReplicas <= 3"
       messageExpression: >-
         "HorizontalPodAutoscaler '" + object.metadata.name + "' allows scaling to " +
         string(object.spec.maxReplicas) + " replicas; the platform ceiling is 3
         pods per workload (scale vertically first — see auto-vpa)."
-    - expression: "object.kind != 'ScaledObject' || variables.scaledObjectCeiling <= 3"
+    - expression: "variables.labelExempt || object.kind != 'ScaledObject' || variables.scaledObjectCeiling <= 3"
       messageExpression: >-
         "ScaledObject '" + object.metadata.name + "' allows scaling to " +
         string(variables.scaledObjectCeiling) + " replicas (KEDA defaults to 100
