@@ -57,10 +57,22 @@ jobs:
       - name: 🧪 Validate heartbeat image contract
         run: ./scripts/tests/test-heartbeat-image-contract.sh
 
-      - name: 🔭 Validate default-off observability option
-        # Coroot stays absent from the default provider paths. The validator also
-        # renders the explicit local/prod profiles selected through KSail.
+      - name: 🔭 Validate the observability stack
+        # Coroot is the default on both providers and kube-prometheus-stack is
+        # retired: the validator renders every provider payload and both cluster
+        # aliases, and fails on anything that would bring the retired stacks back.
         run: ./scripts/validate-observability-option.sh
+
+      - name: 🔔 Validate Flux alert coverage
+        # The production Alert is the only notification for a failed HelmRelease,
+        # and it has no namespace wildcard: every namespace holding a release or a
+        # Flux Kustomization must be listed.
+        run: ./scripts/validate-alert-coverage.sh
+
+      - name: 🧪 Validate the alert coverage check
+        # Proves the check above fails on an unwatched namespace, a source without
+        # a namespace, a named source and a layer that does not render.
+        run: ./scripts/tests/test-alert-coverage.sh
 
       - name: 🔐 Validate SSO deep-link redirects
         # Every host behind oauth2-proxy finishes its login on its own host and

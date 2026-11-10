@@ -20,7 +20,6 @@ resources:
   - ../../../../bases/infrastructure/controllers/flux-operator/
   - ../../../../bases/infrastructure/controllers/keda/
   - ../../../../bases/infrastructure/controllers/keda-http-add-on/
-  - ../../../../bases/infrastructure/controllers/kube-prometheus-stack/
   - ../../../../bases/infrastructure/controllers/kubescape/
   - ../../../../bases/infrastructure/controllers/kyverno/
   - ../../../../bases/infrastructure/controllers/metrics-server/
@@ -44,7 +43,6 @@ resources:
   - origin-ca-issuer/
 patches:
   - path: openbao/patches/store-data-on-hcloud.yaml
-  - path: kube-prometheus-stack/patches/store-tsdb-on-hcloud.yaml
   - path: coroot/patches/allow-slack-webhook-egress.yaml
     target:
       group: cilium.io

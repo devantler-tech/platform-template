@@ -44,7 +44,6 @@ spec:
                 - kubescape
                 - kubevirt
                 - cdi
-                - monitoring
                 - velero
                 - observability
       mutate:
@@ -73,7 +72,6 @@ spec:
                 - kubescape
                 - kubevirt
                 - cdi
-                - monitoring
                 - velero
                 - observability
       mutate:

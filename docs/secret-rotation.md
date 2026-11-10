@@ -78,7 +78,7 @@ preferring OpenBao-native mechanisms.
     [`k8s/bases/infrastructure/vault-seed/`](../k8s/bases/infrastructure/vault-seed))
     seed OpenBao KV once; `ExternalSecret`s sync to consumer namespaces (1 h refresh).
     Used by app DB/cache credentials, OIDC client secrets for the demo apps, the
-    Cloudflare token, the R2 credentials, and the Alertmanager URLs.
+    Cloudflare token and the R2 credentials.
   - **SOPS → Flux postBuild substitution**: `${dex_client_secret}`,
     `${flux_web_client_secret}`, `${oauth2_proxy_cookie_secret}` etc. are still read
     from `k8s/clusters/*/bootstrap/variables-cluster-secret.enc.yaml`. **Dex (the OIDC

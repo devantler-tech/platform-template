@@ -3,4 +3,3 @@ kind: Kustomization
 resources:
   - velero-r2-credentials.yaml
   - cnpg-r2-credentials.yaml
-  - alertmanager-webhook.yaml

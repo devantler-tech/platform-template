@@ -24,7 +24,7 @@ name: 🌱 Bootstrap
 #     ADMIN_EMAIL, HETZNER_LOCATION, SSO_GITHUB_APP_CLIENT_ID, R2_BUCKET (optional).
 #   * GitHub *Secrets*: HCLOUD_TOKEN, GHCR_TOKEN, CLOUDFLARE_API_TOKEN,
 #     R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, ALERTMANAGER_WEBHOOK_URL,
-#     ALERTMANAGER_HEARTBEAT_URL, SSO_GITHUB_APP_CLIENT_SECRET, APP_PRIVATE_KEY.
+#     CLUSTER_HEARTBEAT_URL, SSO_GITHUB_APP_CLIENT_SECRET, APP_PRIVATE_KEY.
 #   GitHub reserves the GITHUB_ prefix for Variables and Secrets, so the SSO
 #   App's credentials carry an SSO_ prefix.
 
@@ -97,7 +97,7 @@ jobs:
           SSO_GITHUB_APP_CLIENT_SECRET: ${{ secrets.SSO_GITHUB_APP_CLIENT_SECRET }}
           APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-          ALERTMANAGER_HEARTBEAT_URL: ${{ secrets.ALERTMANAGER_HEARTBEAT_URL }}
+          CLUSTER_HEARTBEAT_URL: ${{ secrets.CLUSTER_HEARTBEAT_URL }}
           HETZNER_LOCATION: ${{ vars.HETZNER_LOCATION }}
         run: |
           set -euo pipefail
@@ -108,7 +108,7 @@ jobs:
           )
           if [ "${BOOTSTRAP_ENVIRONMENT}" = "prod" ]; then
             # Without a location, prod would silently keep the template's default datacenter.
-            required+=(HCLOUD_TOKEN ALERTMANAGER_HEARTBEAT_URL HETZNER_LOCATION)
+            required+=(HCLOUD_TOKEN CLUSTER_HEARTBEAT_URL HETZNER_LOCATION)
           fi
           missing=()
           for name in "${required[@]}"; do
@@ -236,7 +236,6 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           ALERTMANAGER_WEBHOOK_URL: ${{ secrets.ALERTMANAGER_WEBHOOK_URL }}
-          ALERTMANAGER_HEARTBEAT_URL: ${{ secrets.ALERTMANAGER_HEARTBEAT_URL }}
           CLUSTER_HEARTBEAT_URL: ${{ secrets.CLUSTER_HEARTBEAT_URL }}
           SSO_GITHUB_APP_CLIENT_SECRET: ${{ secrets.SSO_GITHUB_APP_CLIENT_SECRET }}
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
@@ -250,32 +249,15 @@ jobs:
           OAUTH2_PROXY_COOKIE_SECRET="$(openssl rand -base64 32)"
           export DEX_CLIENT_SECRET FLUX_WEB_CLIENT_SECRET OAUTH2_PROXY_COOKIE_SECRET
 
-          # The dedicated Coroot heartbeat has an exact hc-ping.com egress
-          # policy. Reject a configured URL that the cluster cannot reach rather
-          # than encrypting a silently dead monitor. Empty stays valid so default
-          # profiles and operators who have not opted into Coroot remain inert.
-          heartbeat_url_pattern='^https://hc-ping\.com/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$'
-          heartbeat_host_pattern='^https?://([^/?#]*@)?hc-ping\.com([:/?#]|$)'
-          cluster_heartbeat_check_id=""
-          alertmanager_heartbeat_check_id=""
-          alertmanager_heartbeat_url_lower="$(printf '%s' "${ALERTMANAGER_HEARTBEAT_URL}" | tr '[:upper:]' '[:lower:]')"
-          if [ -n "${CLUSTER_HEARTBEAT_URL}" ]; then
-            if [[ ! "${CLUSTER_HEARTBEAT_URL}" =~ ${heartbeat_url_pattern} ]]; then
-              echo "::error::CLUSTER_HEARTBEAT_URL must be a canonical https://hc-ping.com/<lowercase-uuid> URL or be unset"
-              exit 1
-            fi
-            cluster_heartbeat_check_id="${BASH_REMATCH[1]}"
-          fi
-          if [[ "${alertmanager_heartbeat_url_lower}" =~ ${heartbeat_host_pattern} ]]; then
-            if [[ ! "${ALERTMANAGER_HEARTBEAT_URL}" =~ ${heartbeat_url_pattern} ]]; then
-              echo "::error::ALERTMANAGER_HEARTBEAT_URL must be canonical when it uses hc-ping.com"
-              exit 1
-            fi
-            alertmanager_heartbeat_check_id="${BASH_REMATCH[1]}"
-          fi
-          if [ -n "${cluster_heartbeat_check_id}" ] && \
-             [ "${cluster_heartbeat_check_id}" = "${alertmanager_heartbeat_check_id}" ]; then
-            echo "::error::CLUSTER_HEARTBEAT_URL must use a different external check than ALERTMANAGER_HEARTBEAT_URL"
+          # The cluster heartbeat is the one off-cluster dead-man signal and has
+          # an exact hc-ping.com egress policy. Reject a URL the cluster cannot
+          # reach rather than encrypting a silently dead monitor. Empty stays
+          # valid here so a local bootstrap needs none; the configuration check
+          # above already requires it for prod.
+          heartbeat_url_pattern='^https://hc-ping\.com/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          if [ -n "${CLUSTER_HEARTBEAT_URL}" ] && \
+             [[ ! "${CLUSTER_HEARTBEAT_URL}" =~ ${heartbeat_url_pattern} ]]; then
+            echo "::error::CLUSTER_HEARTBEAT_URL must be a canonical https://hc-ping.com/<lowercase-uuid> URL or be unset"
             exit 1
           fi
 
@@ -288,10 +270,11 @@ jobs:
           }
           fill_base k8s/bases/bootstrap/variables-base-secret.enc.yaml
 
-          # prod cluster secret
+          # prod cluster secret. The placeholder still lists the retired Alertmanager
+          # heartbeat key, which nothing reads; drop it so it is never encrypted.
           yq -i '
+            del(.stringData.alertmanager_heartbeat_url) |
             .stringData.alertmanager_webhook_url = strenv(ALERTMANAGER_WEBHOOK_URL) |
-            .stringData.alertmanager_heartbeat_url = strenv(ALERTMANAGER_HEARTBEAT_URL) |
             .stringData.cluster_heartbeat_url = strenv(CLUSTER_HEARTBEAT_URL) |
             .stringData.dex_client_secret = strenv(DEX_CLIENT_SECRET) |
             .stringData.flux_web_client_secret = strenv(FLUX_WEB_CLIENT_SECRET) |

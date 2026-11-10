@@ -16,16 +16,14 @@ readonly catalog_source='^  - https://raw\.githubusercontent\.com/devantler-tech
 # The only chart PDB values allowed to set minAvailable, as
 # "<HelmRelease>:<values path>": the PDBs KSail installs with chart defaults
 # before Flux (cert-manager, metrics-server, the Kyverno admission controller,
-# the Hetzner CSI controller), which the consumer PolicyException exempts, and
-# the kube-prometheus-stack Alertmanager that platform-template#65 retires.
+# the Hetzner CSI controller), which the consumer PolicyException exempts.
 readonly allowed_min_available='[
   "cert-manager:podDisruptionBudget",
   "cert-manager:cainjector.podDisruptionBudget",
   "cert-manager:webhook.podDisruptionBudget",
   "metrics-server:podDisruptionBudget",
   "kyverno:admissionController.podDisruptionBudget",
-  "hcloud-csi:controller.podDisruptionBudget",
-  "kube-prometheus-stack:alertmanager.alertmanagerSpec.podDisruptionBudget"
+  "hcloud-csi:controller.podDisruptionBudget"
 ]'
 
 fail() {

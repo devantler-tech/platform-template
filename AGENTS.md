@@ -263,7 +263,10 @@ kustomize k8s/clusters/local/` and `kubectl kustomize k8s/clusters/prod/`. Per f
 `kubectl apply --dry-run=client -f <file>`. Changes to Coroot, the
 audit-log-forwarder or the cluster heartbeat also run
 `./scripts/validate-observability-option.sh` to cover the default layers and their
-aliases. **Never run a cluster** (no `ksail cluster create`/`update`/
+aliases. A HelmRelease or Flux Kustomization in a new namespace, or a change to
+the production Flux `Alert`, also runs `./scripts/validate-alert-coverage.sh`: the
+Alert is the only notification for a failed release and lists every namespace by
+name. **Never run a cluster** (no `ksail cluster create`/`update`/
 `delete`, no mutating `~/.kube/config`). **Protected — never modify**
 in this repo: `*.enc.yaml`, `.sops.yaml`. Manifest layering (which change belongs
 in a base and which in an overlay patch) and Flux dependency order are stated

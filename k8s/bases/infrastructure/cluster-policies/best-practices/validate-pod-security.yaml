@@ -51,7 +51,6 @@ spec:
                 - kubescape
                 - kubevirt
                 - cdi
-                - monitoring
                 - velero
                 - observability
           - resources:
@@ -108,7 +107,6 @@ spec:
                 - kubescape
                 - kubevirt
                 - cdi
-                - monitoring
                 - velero
                 - observability
           - resources:
@@ -141,7 +139,6 @@ spec:
                 - kubescape
                 - kubevirt
                 - cdi
-                - monitoring
                 - velero
                 - observability
           - resources:

@@ -37,7 +37,7 @@ it some GitHub configuration and one GitHub App; it does the rest:
 | **GitHub App for cluster SSO** | Dex’s GitHub OIDC connector — lets you log in to platform UIs and `kubectl` with GitHub | A *second*, separate App from the bootstrap App below (this one is the cluster’s identity provider). |
 | **GitHub App for the bootstrap** | Lets the workflow write `prod` environment secrets back | See [Install the bootstrap GitHub App](#1-install-the-bootstrap-github-app). |
 | **GHCR (GitHub Container Registry)** | Hosts the published OCI manifest artifact | A token with `packages: read/write`. |
-| **An external heartbeat monitor** (e.g. [healthchecks.io](https://healthchecks.io)) | Dead-man’s-switch so you’re paged if the whole cluster goes dark | Optional; see [`docs/dr/alerting.md`](dr/alerting.md). |
+| **An external heartbeat monitor** ([healthchecks.io](https://healthchecks.io)) | Dead-man’s-switch so you’re notified if the whole cluster goes dark | One check with a five-minute period. Required for a `prod` bootstrap; see [`docs/dr/alerting.md`](dr/alerting.md). |
 
 > **You do not need to install SOPS, Age, KSail, or Talos locally to bootstrap.**
 > The workflow installs its own tooling on the runner. You only need them for
@@ -131,9 +131,8 @@ Set these in your **new instance repository** under *Settings → Secrets and va
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token — DNS edit for the zone (+ Origin CA if used) | Cloudflare → **My Profile → API Tokens**. Scope to the zone’s DNS. |
 | `R2_ACCESS_KEY_ID` | R2 (S3) access key ID for backups | Cloudflare R2 → **Manage R2 API Tokens**. |
 | `R2_SECRET_ACCESS_KEY` | R2 (S3) secret access key for backups | Same place as the access key ID. |
-| `ALERTMANAGER_WEBHOOK_URL` | Incoming webhook for alert notifications (e.g. Slack) | Your chat platform’s incoming-webhook setup. |
-| `ALERTMANAGER_HEARTBEAT_URL` | Ping URL that proves the Prometheus → Alertmanager pipeline is alive | healthchecks.io (or similar) check ping URL. |
-| `CLUSTER_HEARTBEAT_URL` | Optional cluster-liveness ping URL for the cluster heartbeat | A **separate**, canonical `https://hc-ping.com/<lowercase-uuid>` URL; never reuse the Alertmanager check under another URL spelling. |
+| `ALERTMANAGER_WEBHOOK_URL` | Slack incoming webhook for Coroot incident and Flux failure notifications | Slack’s incoming-webhook setup for your alerts channel. |
+| `CLUSTER_HEARTBEAT_URL` | Ping URL for the cluster heartbeat, the one off-cluster dead-man signal (required for a `prod` bootstrap) | A canonical `https://hc-ping.com/<lowercase-uuid>` check ping URL from healthchecks.io. |
 | `SSO_GITHUB_APP_CLIENT_SECRET` | **Client secret** of the *cluster SSO* GitHub App (Dex’s GitHub connector) | The SSO App’s settings page (generate a client secret). |
 | `APP_PRIVATE_KEY` | Private key (`.pem`) of the **bootstrap** GitHub App, also used by the weekly template sync | Generated when you created the bootstrap App. |
 
