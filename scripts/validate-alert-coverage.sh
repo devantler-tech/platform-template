@@ -102,7 +102,7 @@ for kind in HelmRelease Kustomization; do
 
   # yq treats `== "*"` as a wildcard comparison, so anchor a regex to require the
   # literal whole-resource wildcard instead of accepting any named source.
-  yq e ".spec.eventSources[] | select(.kind == \"${kind}\" and (.name | test(\"^\\\\*$\"))) | .namespace | select(. != null and . != \"\")" "${ALERT_FILE}" |
+  yq e ".spec.eventSources[] | select(.kind == \"${kind}\" and ((.name // \"\") | test(\"^\\\\*$\"))) | .namespace | select(. != null and . != \"\")" "${ALERT_FILE}" |
     LC_ALL=C sort -u >"${watched}"
 
   uncovered="$(comm -23 "${declared}" "${watched}")"

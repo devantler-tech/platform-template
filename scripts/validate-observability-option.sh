@@ -1214,12 +1214,12 @@ done
 # secrets (`*.enc.yaml`, which automation never edits) are the one place it may
 # still be listed until the workflow drops it.
 if grep -n 'ALERTMANAGER_HEARTBEAT_URL' "${bootstrap_workflow}" ||
-  grep -n 'alertmanager_heartbeat' "${bootstrap_workflow}" |
-  grep -v -F 'del(.stringData.alertmanager_heartbeat_url) |'; then
+  grep 'alertmanager_heartbeat' "${bootstrap_workflow}" |
+  grep -v -x -E '[[:space:]]*del\(\.stringData\.alertmanager_heartbeat_url\) \|'; then
   echo "the bootstrap workflow must not read the retired Alertmanager heartbeat" >&2
   exit 1
 fi
-if ! grep -Fq 'del(.stringData.alertmanager_heartbeat_url) |' "${bootstrap_workflow}"; then
+if ! grep -q -x -E '[[:space:]]*del\(\.stringData\.alertmanager_heartbeat_url\) \|' "${bootstrap_workflow}"; then
   echo "the bootstrap workflow must drop the retired Alertmanager heartbeat key from the prod secret" >&2
   exit 1
 fi

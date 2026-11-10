@@ -81,6 +81,15 @@ yq -i '(.spec.eventSources[] | select(.kind == "HelmRelease" and .namespace == "
 expect_failure "a source that names one release does not cover its namespace" \
   'does not watch every namespace holding a HelmRelease'
 
+# --- a source without a name is not a whole-namespace watch, and is reported plainly -----
+fresh_copy
+yq -i 'del(.spec.eventSources[] | select(.kind == "HelmRelease" and .namespace == "keda") | .name)' \
+  "${tmp_dir}/repo/${alert}"
+expect_failure "a source without a name does not cover its namespace" \
+  'does not watch every namespace holding a HelmRelease'
+grep -Fq 'namespace: keda' "${tmp_dir}/out.txt" ||
+  fail "the failure did not name the namespace whose source has no name"
+
 # --- a layer that does not render is not a pass -----------------------------------------
 fresh_copy
 printf 'resources:\n  - does-not-exist.yaml\n' >"${tmp_dir}/repo/k8s/providers/hetzner/apps/kustomization.yaml"
