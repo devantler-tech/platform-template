@@ -952,8 +952,13 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
     echo "the Grafana Loki datasource must stay removed with Loki" >&2
     exit 1
   fi
+done
+# A leftover Loki address can sit in any payload (a Coroot, homepage or
+# datasource setting), so every render is searched, not only the controllers.
+for rendered_path in "${docker_controllers}" "${docker_infrastructure}" "${docker_apps}" \
+  "${hetzner_controllers}" "${hetzner_infrastructure}" "${hetzner_apps}" "${coroot_base}"; do
   if [[ "$(loki_service_reference_count "${rendered_path}")" != "0" ]]; then
-    echo "no render may retain a reference to the retired Loki service" >&2
+    echo "no render may retain a reference to the retired Loki service: ${rendered_path}" >&2
     exit 1
   fi
 done
