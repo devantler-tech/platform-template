@@ -4,9 +4,3 @@ kind: Kustomization
 resources:
   - ../../../bases/infrastructure/
   - cluster-issuers/
-components:
-  # Coroot's node agent needs host access, and its namespace keeps its own
-  # default-deny so the cluster heartbeat stays isolated from it.
-  - ../../../components/observability-coroot/allow-host-access/
-  - ../../../components/observability-coroot/isolate-heartbeat/
-  - ../../../components/observability-coroot/remove-kps-ui/

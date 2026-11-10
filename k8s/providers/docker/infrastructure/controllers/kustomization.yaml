@@ -39,5 +39,3 @@ patches:
       name: kubevirt
       namespace: kubevirt
     path: kubevirt/patches/enable-software-emulation.yaml
-components:
-  - ../../../../components/observability-coroot/remove-kps-ui/

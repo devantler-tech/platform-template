@@ -104,10 +104,9 @@ The cluster configuration lives under `k8s/*`:
     They set the install/upgrade retry policy once, and turn on drift
     detection so Flux restores a chart resource that is deleted or edited out of band. A new
     HelmRelease inherits both; do not repeat the remediation block in it.
-  - The rest are transformations the provider layers apply: the default layers use the
-    [Coroot](TEMPLATING.md#observability-coroot-is-the-default) ones, and only the opt-in
-    provider profiles add the
+  - The rest is the shared policy set that only the opt-in provider profiles add: the
     [recommended-labels policy](TEMPLATING.md#add-recommended-workload-labels-at-admission).
+    Coroot needs none: it is part of the bases.
 
 ### Kustomize overlay flow
 

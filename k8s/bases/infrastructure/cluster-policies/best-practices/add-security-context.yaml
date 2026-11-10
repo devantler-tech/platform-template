@@ -46,6 +46,7 @@ spec:
                 - cdi
                 - monitoring
                 - velero
+                - observability
       mutate:
         patchStrategicMerge:
           spec:
@@ -74,6 +75,7 @@ spec:
                 - cdi
                 - monitoring
                 - velero
+                - observability
       mutate:
         foreach:
           - list: "request.object.spec.containers"

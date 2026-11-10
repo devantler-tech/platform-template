@@ -918,9 +918,7 @@ for retired_path in \
   k8s/bases/infrastructure/controllers/alloy \
   k8s/bases/infrastructure/controllers/opencost \
   k8s/providers/hetzner/infrastructure/controllers/loki \
-  k8s/components/observability-coroot/remove-controllers-loki-alloy \
-  k8s/components/observability-coroot/remove-controller-opencost \
-  k8s/components/observability-coroot/remove-opencost-references \
+  k8s/components/observability-coroot \
   k8s/providers/docker/infrastructure-controllers-coroot \
   k8s/providers/docker/infrastructure-coroot \
   k8s/providers/docker/apps-coroot \

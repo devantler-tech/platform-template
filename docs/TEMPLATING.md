@@ -258,7 +258,7 @@ See [`.github/workflows/`](../.github/workflows) for the exact names in use.
 - [`k8s/bases/apps/`](../k8s/bases/apps) — the demo applications (homepage, whoami).
 - [`k8s/components/`](../k8s/components) — shared transformations: the HelmRelease
   retry defaults and drift detection every HelmRelease-owning kustomization lists, and the
-  transformations the provider layers apply for Coroot and for opt-in profiles.
+  shared policy set the opt-in profiles add.
 - [`k8s/providers/{docker,hetzner}/`](../k8s/providers) — provider-specific assembly
   of the bases.
 

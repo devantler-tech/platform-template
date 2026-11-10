@@ -52,5 +52,3 @@ patches:
       kind: CiliumNetworkPolicy
       name: allow-coroot
       namespace: observability
-components:
-  - ../../../../components/observability-coroot/remove-kps-ui/

@@ -14,9 +14,9 @@ metadata:
 spec:
   reason: >-
     CNI (Cilium), distributed storage (Longhorn), node monitoring
-    (Prometheus node-exporter), identity (SPIRE agent), backup
-    (Velero node-agent), and virtualisation (KubeVirt, CDI) require
-    host-level access by design.
+    (Prometheus node-exporter and Coroot node agent), identity (SPIRE
+    agent), backup (Velero node-agent), virtualisation (KubeVirt, CDI),
+    and opt-in host audit collection require host-level access by design.
   posture:
     - controlID: C-0057
       action: ignore
@@ -52,3 +52,4 @@ spec:
             - velero
             - kubevirt
             - cdi
+            - observability

@@ -25,14 +25,6 @@ data:
           rule: "Host(`hubble.${domain}`)"
           entryPoints: ["web"]
           service: hubble-ui
-        prometheus:
-          rule: "Host(`prometheus.${domain}`)"
-          entryPoints: ["web"]
-          service: prometheus
-        alertmanager:
-          rule: "Host(`alertmanager.${domain}`)"
-          entryPoints: ["web"]
-          service: alertmanager
         coroot:
           rule: "Host(`observability.${domain}`)"
           entryPoints: ["web"]
@@ -47,16 +39,6 @@ data:
             servers:
               - url: >-
                   http://keda-add-ons-http-interceptor-proxy.keda.svc.cluster.local:8080
-        prometheus:
-          loadBalancer:
-            servers:
-              - url: >-
-                  http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
-        alertmanager:
-          loadBalancer:
-            servers:
-              - url: >-
-                  http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093
         coroot:
           loadBalancer:
             servers:
