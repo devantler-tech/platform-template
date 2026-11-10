@@ -41,6 +41,8 @@ resources:
   - kubelet-serving-cert-approver/
   - longhorn/
   - origin-ca-issuer/
+  # Backup, database and certificate checks that post to Slack (#423).
+  - platform-health-alert/
 patches:
   - path: openbao/patches/store-data-on-hcloud.yaml
   - path: coroot/patches/allow-slack-webhook-egress.yaml

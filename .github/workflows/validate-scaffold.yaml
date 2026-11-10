@@ -63,6 +63,12 @@ jobs:
         # aliases, and fails on anything that would bring the retired stacks back.
         run: ./scripts/validate-observability-option.sh
 
+      - name: 🩺 Validate the backup, database and certificate check
+        # Runs the production platform-health-alert script against recorded API
+        # responses: every problem shape is reported, healthy and uninstalled
+        # kinds stay quiet, and a broken read or delivery fails the check.
+        run: ./scripts/tests/test-platform-health-alert.sh
+
       - name: 🔔 Validate Flux alert coverage
         # The production Alert is the only notification for a failed HelmRelease,
         # and it has no namespace wildcard: every namespace holding a release or a

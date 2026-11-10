@@ -4,7 +4,7 @@
 and incidents, collected by an eBPF node agent with no application changes.
 Self-hosted, no SaaS metrics tier. There is no kube-prometheus-stack: no
 Prometheus operator, Alertmanager, node-exporter or kube-state-metrics, and no
-`monitoring` namespace. Alerting has three parts:
+`monitoring` namespace. Alerting has four parts:
 
 1. **Coroot incidents go to Slack.** Coroot inspects every workload and node
    and posts incident and resolution notifications in production.
@@ -12,6 +12,10 @@ Prometheus operator, Alertmanager, node-exporter or kube-state-metrics, and no
    reconciliation errors for every `Kustomization` and every `HelmRelease`.
 3. **One off-cluster dead-man check.** The `cluster-heartbeat` CronJob pings an
    external monitor, so a cluster that is down still gets noticed.
+4. **A health check for backups, databases and certificates.** The
+   `platform-health-alert` CronJob posts what Coroot and Flux do not see: a
+   failed or stale backup, a degraded CloudNativePG cluster and a certificate
+   close to expiry. See [Backup, database and certificate check](#backup-database-and-certificate-check).
 
 There is one UI, behind SSO: Coroot at `https://observability.${domain}`,
 reached only through oauth2-proxy.
@@ -23,18 +27,19 @@ says how an instance that ran them migrates.
 
 ## Components
 
-| Component           | Role                                               | Persistence (prod) |
-| ------------------- | -------------------------------------------------- | ------------------ |
-| Coroot              | UI, incidents, service map, alert inspections      | PVC, 2 Gi          |
-| Coroot Prometheus   | Coroot's own metric store                          | PVC, 10 Gi         |
-| Coroot ClickHouse   | Logs, traces and profiles, 3 d retention           | PVC, 10 Gi         |
-| Coroot node agent   | eBPF telemetry from every node (DaemonSet)         | n/a                |
-| Audit log forwarder | Ships Talos host audit logs to Coroot (prod only)  | n/a                |
-| Flux notifications  | `Provider` and two `Alert` objects (prod only)     | n/a                |
-| cluster-heartbeat   | Dead-man ping every five minutes (CronJob)         | n/a                |
+| Component             | Role                                               | Persistence (prod) |
+| --------------------- | -------------------------------------------------- | ------------------ |
+| Coroot                | UI, incidents, service map, alert inspections      | PVC, 2 Gi          |
+| Coroot Prometheus     | Coroot's own metric store                          | PVC, 10 Gi         |
+| Coroot ClickHouse     | Logs, traces and profiles, 3 d retention           | PVC, 10 Gi         |
+| Coroot node agent     | eBPF telemetry from every node (DaemonSet)         | n/a                |
+| Audit log forwarder   | Ships Talos host audit logs to Coroot (prod only)  | n/a                |
+| Flux notifications    | `Provider` and two `Alert` objects (prod only)     | n/a                |
+| cluster-heartbeat     | Dead-man ping every five minutes (CronJob)         | n/a                |
+| platform-health-alert | Backup, database and certificate check (prod only) | n/a                |
 
-Local/CI runs the same stack without the audit log forwarder and without the
-Flux notification path. Coroot's bundled Prometheus is its own metric store; it
+Local/CI runs the same stack without the audit log forwarder, the health check and
+the Flux notification path. Coroot's bundled Prometheus is its own metric store; it
 is not a Prometheus operator and installs no `monitoring.coreos.com` resources.
 
 ## Alert routing → Slack
@@ -98,26 +103,52 @@ and ~10 min grace and connect it to Slack. The CronJob deliberately accepts only
 
 ## What is alerted, and what is not
 
-| Signal                                      | Where it shows                              |
-| ------------------------------------------- | ------------------------------------------- |
-| A workload misses its objectives            | Coroot incident → Slack                     |
-| Node, pod, memory, disk and restart health  | Coroot inspections, in the Coroot UI        |
-| A `Kustomization` fails to build or apply   | Flux `Alert` → Slack                        |
-| A `HelmRelease` fails to install or upgrade | Flux `Alert` → Slack                        |
-| A prerequisite layer is not ready           | Flux `Alert` → Slack (dependency wait)      |
-| The cluster stops answering                 | External monitor → Slack                    |
+| Signal                                       | Where it shows                                |
+| -------------------------------------------- | --------------------------------------------- |
+| A workload misses its objectives             | Coroot incident → Slack                       |
+| Node, pod, memory, disk and restart health   | Coroot inspections, in the Coroot UI          |
+| A `Kustomization` fails to build or apply    | Flux `Alert` → Slack                          |
+| A `HelmRelease` fails to install or upgrade  | Flux `Alert` → Slack                          |
+| A prerequisite layer is not ready            | Flux `Alert` → Slack (dependency wait)        |
+| The cluster stops answering                  | External monitor → Slack                      |
+| A Velero backup failed or is stale           | Health check → Slack                          |
+| A CloudNativePG cluster is degraded or stale | Health check → Slack                          |
+| A certificate expires within 14 days         | Health check → Slack                          |
+| Cluster Autoscaler cannot add a node         | Coroot incident for the workload left Pending |
 
-**Not alerted today.** The Prometheus rules that left with kube-prometheus-stack
-had no direct equivalent in Coroot's model, and these are not replaced:
+**Cluster Autoscaler failures are left to Coroot.** KSail deploys and owns the
+autoscaler, not this repository's manifests, so a check here would have to
+guess its namespace and its event format. What matters to an operator is the
+effect: pods that stay Pending, which Coroot reports as the workload missing
+its objectives. Read the autoscaler's own state from its
+`cluster-autoscaler-status` ConfigMap.
 
-- certificate expiry (`CertificateExpiringSoon`);
-- a failed or stale Velero backup, and a CloudNativePG cluster without a recent
-  backup or a streaming replica;
-- cluster-autoscaler scale-up failures.
+## Backup, database and certificate check
 
-Check backups with the restore drill in [restore-drill.md](./restore-drill.md)
-and certificates with `kubectl get certificates -A` until an instance adds its
-own check for them.
+The `platform-health-alert` CronJob replaces the Prometheus rules that left
+with kube-prometheus-stack. It runs every six hours in production, in the
+`observability` namespace, and posts one Slack message listing every problem
+it finds:
+
+- a Velero schedule whose latest backup failed, or that has no completed
+  backup in the last 26 hours;
+- a CloudNativePG cluster with no completed `Backup` in the last 26 hours,
+  fewer ready instances than it asks for, or a configured WAL archive that is
+  not working, each for longer than 15 minutes;
+- a cert-manager `Certificate` that expires within 14 days, which means
+  cert-manager has not renewed it.
+
+It posts to the same webhook as Coroot and Flux, so there is nothing new to
+provision. A problem is reported again on every run until it is fixed. Its
+identity can only list Velero schedules and backups, CloudNativePG clusters
+and backups, and certificates. A kind whose API is not installed is skipped;
+any other read or delivery failure fails the Job, so check
+`kubectl -n observability get jobs` after a quiet week if you doubt it.
+`scripts/tests/test-platform-health-alert.sh` runs the check against recorded
+API responses in CI.
+
+Every CloudNativePG cluster is expected to have a recent backup. A database you
+add without a `ScheduledBackup` is reported until it has one.
 
 ## Off-cluster backup
 

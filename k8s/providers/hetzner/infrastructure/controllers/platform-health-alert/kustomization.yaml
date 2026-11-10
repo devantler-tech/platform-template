@@ -1,0 +1,15 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Production-only health check for the signals that left with
+# kube-prometheus-stack (#423): failed or stale Velero backups, CloudNativePG
+# clusters without a recent backup, a streaming replica or WAL archiving, and
+# certificates close to expiry. It lives in the observability namespace to
+# reuse the allow-coroot network policy, which already permits the
+# kube-apiserver, DNS and, in production, hooks.slack.com:443.
+resources:
+  - service-account.yaml
+  - cluster-role.yaml
+  - cluster-role-binding.yaml
+  - secret.yaml
+  - cron-job.yaml
