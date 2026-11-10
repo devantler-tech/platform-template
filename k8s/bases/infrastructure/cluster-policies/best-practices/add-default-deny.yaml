@@ -115,13 +115,16 @@ spec:
                   operator: NotIn
                   values:
                     - "true"
+            # The same composable floor as the namespace-wide rule above: one empty
+            # allow rule per direction names no peer or port, so it allows nothing.
+            # A deny rule here would override allow-coroot and allow-dns.
+            ingress:
+              - {}
+            egress:
+              - {}
             enableDefaultDeny:
               ingress: true
               egress: true
-            ingressDeny:
-              - {}
-            egressDeny:
-              - {}
     - name: generate-allow-dns-observability
       match:
         any:

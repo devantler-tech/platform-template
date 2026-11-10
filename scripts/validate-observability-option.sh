@@ -624,8 +624,8 @@ assert_heartbeat_policy_exclusion() {
       expected_spec='{
         "endpointSelector":{"matchExpressions":[{"key":"platform-heartbeat","operator":"NotIn","values":["true"]}]},
         "enableDefaultDeny":{"ingress":true,"egress":true},
-        "ingressDeny":[{}],
-        "egressDeny":[{}]
+        "ingress":[{}],
+        "egress":[{}]
       }'
     else
       expected_spec='{
