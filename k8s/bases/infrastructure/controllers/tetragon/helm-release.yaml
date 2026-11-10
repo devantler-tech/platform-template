@@ -22,8 +22,7 @@ spec:
   # eBPF-based runtime security observability. Sibling to the Cilium
   # install (same vendor, same helm.cilium.io repo), so it reuses the
   # `cilium` HelmRepository in this namespace instead of defining a
-  # duplicate source against the same URL -- the same dedup pattern as
-  # alloy reusing loki's `grafana` repo.
+  # duplicate source against the same URL.
   #
   # Deployed to kube-system because the agent needs hostNetwork + hostPath
   # + host PID, which the validate-host-restrictions Kyverno policy blocks
@@ -99,6 +98,6 @@ spec:
         serviceMonitor:
           enabled: true
     # The export-stdout sidecar is on by default (export.mode: stdout), so
-    # Tetragon's JSON events go to the pod's stdout -- where Alloy tails
-    # them into Loki, making them searchable in Grafana with no extra
+    # Tetragon's JSON events go to the pod's stdout -- where Coroot's node
+    # agent collects them with the other container logs, with no extra
     # wiring.

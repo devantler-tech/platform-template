@@ -13,8 +13,8 @@ sed -n '/^assert_coroot_heartbeat_contract() {/,/^}/p' "${source_root}/scripts/v
 # shellcheck source=/dev/null
 source "${test_dir}/assertions.sh"
 
-kubectl kustomize "${source_root}/k8s/providers/docker/apps-coroot" >"${test_dir}/apps.yaml"
-kubectl kustomize "${source_root}/k8s/providers/docker/infrastructure-controllers-coroot" >"${test_dir}/controllers.yaml"
+kubectl kustomize "${source_root}/k8s/providers/docker/apps" >"${test_dir}/apps.yaml"
+kubectl kustomize "${source_root}/k8s/providers/docker/infrastructure/controllers" >"${test_dir}/controllers.yaml"
 repo_root="${test_dir}/source"
 mkdir -p "${repo_root}/k8s/bases/apps/cluster-heartbeat"
 source_manifest="${repo_root}/k8s/bases/apps/cluster-heartbeat/cron-job.yaml"

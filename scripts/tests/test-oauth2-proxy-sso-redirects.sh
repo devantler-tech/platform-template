@@ -24,13 +24,12 @@ repo_root="$(cd "${script_dir}/../.." && pwd)"
 readonly repo_root
 
 readonly providers=(hetzner docker)
-# Each observability profile is its own set of layers (scripts/validate-observability-option.sh),
-# and the profiles put different hosts behind oauth2-proxy, so every profile is rendered.
-readonly profiles=(default coroot)
+# A profile is a set of provider layers Flux reconciles. Coroot is part of the default layers
+# (scripts/validate-observability-option.sh), so there is one profile to render.
+readonly profiles=(default)
 layers_of() {
   case "$1" in
     default) echo infrastructure/controllers infrastructure apps ;;
-    coroot) echo infrastructure-controllers-coroot infrastructure-coroot apps-coroot ;;
   esac
 }
 readonly dex_file='k8s/bases/infrastructure/controllers/dex/helm-release.yaml'

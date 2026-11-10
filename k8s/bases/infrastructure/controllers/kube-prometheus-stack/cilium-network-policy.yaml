@@ -10,14 +10,6 @@ spec:
     - fromEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: monitoring
-    # OpenCost queries Prometheus
-    - fromEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: opencost
-      toPorts:
-        - ports:
-            - port: "9090"
-              protocol: TCP
     # auth-proxy (oauth2-proxy SSO) reaches the Prometheus and Alertmanager
     # UIs after authentication. Grafana is no longer fronted by oauth2-proxy
     # (it does native Dex OIDC and is reached directly from the Gateway --

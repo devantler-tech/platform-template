@@ -72,7 +72,7 @@ kubectl kustomize k8s/clusters/prod/ > /dev/null
 | You changed | Run |
 |---|---|
 | Anything under `k8s/`, `talos*/`, or a `ksail*.yaml` file | The five commands above |
-| The observability options (Coroot, OpenCost, audit-log-forwarder) | `./scripts/validate-observability-option.sh` |
+| The observability stack (Coroot, audit-log-forwarder, the cluster heartbeat) | `./scripts/validate-observability-option.sh` |
 | Single sign-on hosts or routes (oauth2-proxy, Dex) | `./scripts/tests/test-oauth2-proxy-sso-redirects.sh` |
 | Cilium default-deny network policies | `./scripts/tests/test-default-deny-shape.sh` |
 | `.github/workflows/bootstrap.yaml` or its documented inputs | `./scripts/validate-bootstrap-workflow.sh` (needs [actionlint](https://github.com/rhysd/actionlint)) |

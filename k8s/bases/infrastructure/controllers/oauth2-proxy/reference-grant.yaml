@@ -20,7 +20,7 @@ spec:
       namespace: monitoring
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
-      namespace: opencost
+      namespace: observability
   to:
     - group: ""
       kind: Service

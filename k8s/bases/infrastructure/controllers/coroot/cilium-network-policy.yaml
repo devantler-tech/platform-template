@@ -24,6 +24,15 @@ spec:
         - ports:
             - port: "8080"
               protocol: TCP
+    # auth-proxy (oauth2-proxy SSO) reaches the Coroot UI after authentication.
+    - fromEndpoints:
+        - matchLabels:
+            app: auth-proxy
+            k8s:io.kubernetes.pod.namespace: oauth2-proxy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
   egress:
     # Cluster-agent discovery and Kubernetes inventory.
     - toEntities:

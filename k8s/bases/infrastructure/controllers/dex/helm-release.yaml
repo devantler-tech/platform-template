@@ -82,7 +82,6 @@ spec:
             - "https://alertmanager.${domain}/oauth2/callback"
             - "https://hubble.${domain}/oauth2/callback"
             - "https://observability.${domain}/oauth2/callback"
-            - "https://opencost.${domain}/oauth2/callback"
             - "https://prometheus.${domain}/oauth2/callback"
           trustedPeers:
             - kubectl

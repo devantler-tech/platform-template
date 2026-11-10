@@ -22,10 +22,9 @@ controllers to save resources (noted inline).
 - **Policy & runtime security** — Kyverno (admission policy), Kubescape (posture + runtime detection), Tetragon (runtime enforcement); see [`runtime-security.md`](runtime-security.md)
 - **Storage** — Longhorn (replicated block / RWX, prod via Hetzner CSI), CloudNativePG (PostgreSQL operator); see [`rwx-storage.md`](rwx-storage.md)
 - **Autoscaling** — Cluster Autoscaler (nodes), Vertical Pod Autoscaler, KEDA + KEDA HTTP add-on; see [`node-autoscaling.md`](node-autoscaling.md)
-- **Observability** — kube-prometheus-stack (Prometheus, Grafana, Alertmanager),
-  Loki (logs), Grafana Alloy (collection), and OpenCost (cost) by default; a
-  [transitional Coroot profile](TEMPLATING.md#select-the-transitional-coroot-profile)
-  is available as an explicit per-cluster opt-in
+- **Observability** — [Coroot](TEMPLATING.md#observability-coroot-is-the-default) (service health,
+  logs, traces and incidents), with kube-prometheus-stack (Prometheus and Alertmanager,
+  no web UIs) kept for the metric-backed alerts until that migration is delivered
 - **Backup / DR** — Velero with CloudNativePG backups to S3-compatible storage (Cloudflare R2 in prod); see [`dr/`](dr)
 - **Virtualization** — KubeVirt + CDI _(local/CI only; disabled on the Hetzner/prod overlay)_
 - **Testing** — Testkube _(local/CI only; not deployed to prod)_
@@ -105,10 +104,10 @@ The cluster configuration lives under `k8s/*`:
     They set the install/upgrade retry policy once, and turn on drift
     detection so Flux restores a chart resource that is deleted or edited out of band. A new
     HelmRelease inherits both; do not repeat the remediation block in it.
-  - The rest are opt-in. Only the opt-in provider profiles use them, to switch to
-    [Coroot](TEMPLATING.md#select-the-transitional-coroot-profile) or add the
-    [recommended-labels policy](TEMPLATING.md#add-recommended-workload-labels-at-admission);
-    the default paths use none of them.
+  - The rest are transformations the provider layers apply: the default layers use the
+    [Coroot](TEMPLATING.md#observability-coroot-is-the-default) ones, and only the opt-in
+    provider profiles add the
+    [recommended-labels policy](TEMPLATING.md#add-recommended-workload-labels-at-admission).
 
 ### Kustomize overlay flow
 

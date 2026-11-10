@@ -19,9 +19,10 @@ spec:
     name: coroot-api-key
     key: key
 
-  # Keep the reusable base unauthenticated-role-free. The explicit Coroot
-  # provider profiles add Admin only through the component that also wires the
-  # complete oauth2-proxy route, grant, and network boundary.
+  # oauth2-proxy authenticates every request before it reaches Coroot, so the
+  # UI grants its anonymous user Admin. The route, reference grant and network
+  # boundary that enforce this ship with the controller layer.
+  authAnonymousRole: Admin
   metricsRefreshInterval: 30s
   cacheTTL: 30d
 

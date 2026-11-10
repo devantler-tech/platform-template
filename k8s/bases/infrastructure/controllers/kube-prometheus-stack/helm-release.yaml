@@ -102,14 +102,6 @@ spec:
           memory: 128Mi
         limits:
           memory: 256Mi
-      # Loki log datasource (Loki shares the monitoring namespace).
-      additionalDataSources:
-        - name: Loki
-          type: loki
-          access: proxy
-          url: http://loki.monitoring.svc.cluster.local:3100
-          jsonData:
-            maxLines: 1000
 
     # We don't host an external Prometheus and don't expose this one.
     prometheus:

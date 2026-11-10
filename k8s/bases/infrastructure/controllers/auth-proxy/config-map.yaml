@@ -14,7 +14,7 @@ data:
         filename: /etc/traefik/dynamic.yaml
     log:
       level: INFO
-  dynamic.yaml: |
+  dynamic.yaml: |-
     http:
       routers:
         homepage:
@@ -33,10 +33,10 @@ data:
           rule: "Host(`alertmanager.${domain}`)"
           entryPoints: ["web"]
           service: alertmanager
-        opencost:
-          rule: "Host(`opencost.${domain}`)"
+        coroot:
+          rule: "Host(`observability.${domain}`)"
           entryPoints: ["web"]
-          service: opencost
+          service: coroot
       services:
         homepage:
           loadBalancer:
@@ -45,16 +45,20 @@ data:
         hubble-ui:
           loadBalancer:
             servers:
-              - url: "http://keda-add-ons-http-interceptor-proxy.keda.svc.cluster.local:8080"
+              - url: >-
+                  http://keda-add-ons-http-interceptor-proxy.keda.svc.cluster.local:8080
         prometheus:
           loadBalancer:
             servers:
-              - url: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
+              - url: >-
+                  http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
         alertmanager:
           loadBalancer:
             servers:
-              - url: "http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093"
-        opencost:
+              - url: >-
+                  http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093
+        coroot:
           loadBalancer:
             servers:
-              - url: "http://opencost.opencost.svc.cluster.local:9090"
+              - url: >-
+                  http://coroot-coroot.observability.svc.cluster.local:8080

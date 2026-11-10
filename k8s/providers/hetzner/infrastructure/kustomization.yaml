@@ -3,11 +3,31 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../../bases/infrastructure/
+  - ../../../bases/infrastructure/audit-log-forwarder/
   - cluster-issuers/
   - vault-seed/
+components:
+  # Coroot's node agent needs host access, and its namespace keeps its own
+  # default-deny so the cluster heartbeat stays isolated from it.
+  - ../../../components/observability-coroot/allow-host-access/
+  - ../../../components/observability-coroot/isolate-heartbeat/
+  - ../../../components/observability-coroot/remove-kps-ui/
 patches:
   - path: patches/attach-hcloud-load-balancer.yaml
     target:
       kind: Gateway
       name: platform
-
+  - path: patches/add-webhook-alerting.yaml
+    target:
+      group: coroot.com
+      version: v1
+      kind: Coroot
+      name: coroot
+      namespace: observability
+  - path: patches/retain-helm-release-alert.yaml
+    target:
+      group: monitoring.coreos.com
+      version: v1
+      kind: PrometheusRule
+      name: platform-critical
+      namespace: monitoring
