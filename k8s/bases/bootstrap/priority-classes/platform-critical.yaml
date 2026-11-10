@@ -23,6 +23,7 @@ metadata:
 value: 1000000000
 globalDefault: false
 description: >-
-  Important platform add-ons (monitoring/alerting) that must survive node
-  memory pressure. Ranked far above normal workloads but below the system-*
-  classes reserved for core cluster/node infrastructure. Not eviction-exempt.
+  Important platform add-ons (observability and the cluster heartbeat) that
+  must survive node memory pressure. Ranked far above normal workloads but
+  below the system-* classes reserved for core cluster/node infrastructure.
+  Not eviction-exempt.

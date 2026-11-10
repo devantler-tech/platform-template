@@ -96,7 +96,7 @@ changes. Four things need your attention:
 - `talos/` belongs to the instance, so the sync does not touch it. Delete
   `talos/control-planes/allow-node-exporter-ingress.yaml` and
   `talos/workers/allow-node-exporter-ingress.yaml`: nothing listens on that
-  port any more.
+  port now.
 
 The stack runs Coroot and nothing beside it. It has no OpenCost,
 has no Loki or Alloy log path, and has no kube-prometheus-stack: no Prometheus

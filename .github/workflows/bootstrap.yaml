@@ -260,6 +260,8 @@ jobs:
             echo "::error::CLUSTER_HEARTBEAT_URL must be a canonical https://hc-ping.com/<lowercase-uuid> URL or be unset"
             exit 1
           fi
+          # End of the heartbeat preflight. scripts/validate-observability-option.sh
+          # runs exactly the lines from the comment above down to this marker.
 
           fill_base() { # variables-base-secret
             yq -i '

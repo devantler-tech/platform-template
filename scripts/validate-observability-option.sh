@@ -176,12 +176,15 @@ run_bootstrap_heartbeat_preflight() {
   local validation_script
 
   validation_script="$(
-    sed -n '/# The cluster heartbeat is the one off-cluster dead-man signal and has/,/^[[:space:]]*fill_base()/p' "${bootstrap_workflow}" |
-      sed '$d'
+    sed -n '/# The cluster heartbeat is the one off-cluster dead-man signal and has/,/# End of the heartbeat preflight\./p' "${bootstrap_workflow}"
   )"
-  # An empty extraction would run nothing and "accept" every URL.
-  if [[ "${validation_script}" != *'CLUSTER_HEARTBEAT_URL'* ]]; then
-    echo "could not extract the heartbeat preflight from ${bootstrap_workflow}" >&2
+  # The extraction must be exactly the preflight. An empty one would run nothing
+  # and "accept" every URL. One without its end marker ran on to the end of the
+  # workflow, and executing that would run the secret writes against this checkout.
+  if [[ "${validation_script}" != *'CLUSTER_HEARTBEAT_URL'* ||
+    "${validation_script}" != *'# End of the heartbeat preflight.'* ]] ||
+    grep -Eq '(^|[^[:alnum:]_.-])(yq|sops)([^[:alnum:]_.-]|$)' <<<"${validation_script}"; then
+    echo "could not extract exactly the heartbeat preflight from ${bootstrap_workflow}" >&2
     return 2
   fi
   env \
