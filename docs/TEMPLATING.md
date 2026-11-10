@@ -74,21 +74,35 @@ ksail --config ksail.prod.yaml cluster update
 ksail --config ksail.prod.yaml workload reconcile
 ```
 
-**An instance on the previous default migrates with its next template sync.**
-That instance ran Loki, Alloy and OpenCost. When the sync merges and Flux
-reconciles it, Flux removes the Loki, Alloy and OpenCost releases and the
-`opencost` namespace, and installs Coroot. No KSail config changes. Two things
-do not carry over: logs held in Loki and cost data held in OpenCost are not
-migrated, and Loki's log volume is a StatefulSet claim that an uninstall leaves
-behind. Delete that leftover PersistentVolumeClaim in the `monitoring` namespace
-once the logs are no longer needed.
+**An instance on an earlier stack migrates with its next template sync.**
+An earlier instance ran Loki, Alloy and OpenCost, and every instance ran
+kube-prometheus-stack. When the sync merges and Flux reconciles it, Flux removes
+the Loki, Alloy and OpenCost releases, the kube-prometheus-stack release and the
+`opencost` and `monitoring` namespaces, and installs Coroot. No KSail config
+changes. Four things need your attention:
 
-The stack is transitional in one respect. It runs Coroot, has no OpenCost,
-has no Loki or Alloy log path, and keeps kube-prometheus-stack
-until the metrics and alerting migration is proven separately. Cost allocation is therefore unavailable.
-Coroot is the only observability UI: the Grafana, Prometheus and Alertmanager
-web UIs, their routes, SSO entries and Grafana sign-in secret are not published, while
-Prometheus and Alertmanager keep running for alerting. Docker runs Coroot
+- Nothing is migrated, and the old data is deleted. Flux removes the
+  `monitoring` namespace with everything in it: the Prometheus and Alertmanager
+  volumes, their silences and metric history, and a Loki volume an earlier
+  uninstall left behind. Take what you need from them before the sync merges.
+- Helm does not delete CustomResourceDefinitions. The Prometheus operator's
+  `monitoring.coreos.com` definitions stay until you delete them, and a chart
+  that creates a ServiceMonitor when they exist keeps doing so until then.
+- Set the `CLUSTER_HEARTBEAT_URL` secret (and `cluster_heartbeat_url` in the
+  production cluster secret) before syncing. It is now the only off-cluster
+  dead-man signal, and `ALERTMANAGER_HEARTBEAT_URL` is no longer read. You can
+  reuse the old check: nothing else pings it once Alertmanager is gone. Give it
+  a five-minute period and a ten-minute grace.
+- `talos/` belongs to the instance, so the sync does not touch it. Delete
+  `talos/control-planes/allow-node-exporter-ingress.yaml` and
+  `talos/workers/allow-node-exporter-ingress.yaml`: nothing listens on that
+  port now.
+
+The stack runs Coroot and nothing beside it. It has no OpenCost,
+has no Loki or Alloy log path, and has no kube-prometheus-stack: no Prometheus
+operator, Alertmanager, node-exporter or kube-state-metrics, and no
+`monitoring.coreos.com` resource in any payload. Cost allocation is therefore unavailable.
+Coroot is the only observability UI. Docker runs Coroot
 without the audit log forwarder, while Hetzner includes the forwarder for host
 audit logs. Because Coroot's eBPF agent and the production audit collector need
 host access, the `observability` namespace is exempt from the
@@ -98,24 +112,27 @@ Production / Hetzner reuses the existing encrypted webhook
 variable for Coroot incident and resolution notifications. Its matching provider
 policy permits only `hooks.slack.com:443`, so keep this value a Slack incoming-webhook URL.
 Flux notification-controller reuses the same `alertmanager_webhook_url` in
-production to report failed reconciliations. The
+production to report failed reconciliations; the variable keeps its earlier
+name so an existing instance needs no secret change. The
 controller layer applies both Flux alerts before it waits for every controller
-to become ready: one forwards all `Kustomization` error events, while a
+to become ready: one forwards the error events of every `Kustomization` and
+every `HelmRelease`, while a
 narrow info-severity path for dependency waits covers a prerequisite that is
-not ready. The legacy Prometheus rule keeps only HelmRelease coverage, so a
-Kustomization failure reaches Slack once. There
-is no fourth secret or polling workload to configure.
+not ready. There is no polling workload to configure.
+notification-controller has no namespace wildcard, so the error alert lists
+every namespace that holds a `HelmRelease`, and `scripts/validate-alert-coverage.sh`
+fails CI when one is missing. An instance that adds a release in a new namespace
+adds that namespace to the alert.
 Per-alert notifications remain visible only in the Coroot UI; this avoids sending
 every noisy alert to the shared webhook. Local / Docker Coroot stays notification-free.
 The apps layer also stages one hardened `cluster-heartbeat` CronJob for the cluster
-dead-man signal. It uses a separate optional `CLUSTER_HEARTBEAT_URL` secret so
-the existing Alertmanager Watchdog check keeps proving the Prometheus-to-Alertmanager
-pipeline. Never point both inputs at the same monitor. The CronJob runs at
+dead-man signal. It is the only one, so a production bootstrap requires the
+`CLUSTER_HEARTBEAT_URL` secret. The CronJob runs at
 platform-critical priority, and its dedicated policy permits only `hc-ping.com:443`
 plus that hostname's exact DNS query. Bootstrap accepts only a canonical
-`https://hc-ping.com/<lowercase-uuid>` URL and compares check identities, so
-fragments, query strings, or trailing slashes cannot make both inputs target the
-same external check under different spellings.
+`https://hc-ping.com/<lowercase-uuid>` URL, so
+fragments, query strings, or trailing slashes cannot encrypt a monitor the
+cluster cannot reach.
 The substituted bearer URL lives in a Kubernetes Secret and reaches the container
 through a Secret-backed environment variable. A shell builtin feeds it to curl as
 stdin configuration, so neither the PodSpec nor curl's runtime argument vector
@@ -124,13 +141,12 @@ The infrastructure layer narrows the generated namespace policies
 around the CronJob's purpose-specific label. The dependent apps layer stages the heartbeat only after that
 infrastructure reconciliation is ready, preventing an existing namespace-wide
 deny policy from blocking the new workload during an upgrade. The invalid URL
-fallback keeps local and unconfigured instances inert. Both checks
-keep Watchdog unchanged on the distinct Alertmanager pipeline monitor,
-which preserves a dead-man signal until the apps layer starts the direct check.
+fallback keeps local and unconfigured instances inert.
 Flux notification-controller now owns reconciliation errors in
 production, including dependency waits.
-Kube-prometheus-stack keeps owning its remaining metric-backed alert rules and
-the Watchdog pipeline until those migrations are delivered separately.
+Some Prometheus alert rules have no replacement: certificate expiry, backup
+freshness and autoscaler failures are not alerted today.
+[`docs/dr/alerting.md`](dr/alerting.md) lists what is and is not alerted.
 
 Open the Coroot UI at `https://observability.<your-domain>`. Community Edition
 does not provide native OIDC, so every UI request goes through the
@@ -200,7 +216,7 @@ resources Flux reads that are genuinely per-cluster:
   replica counts, Hetzner LB location/type, Longhorn settings, etc.). Bootstrap fills
   `domain`, `domain_regex`, `github_app_client_id`, and `admin_email` from your
   Variables; the rest are sensible defaults you can tune.
-- `variables-cluster-secret.enc.yaml` — SOPS-encrypted secrets (Alertmanager URLs,
+- `variables-cluster-secret.enc.yaml` — SOPS-encrypted secrets (the alert webhook and heartbeat URLs,
   the OIDC/cookie secrets, the GitHub SSO client secret, the Hetzner/R2 tokens).
   Bootstrap fills these from your Secrets and `sops -e` encrypts them.
 
@@ -241,7 +257,7 @@ plus which values the bootstrap auto-generates — live in
   `APP_CLIENT_ID`.
 - **Secrets you set:** `HCLOUD_TOKEN`, `GHCR_TOKEN`, `CLOUDFLARE_API_TOKEN`,
   `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `ALERTMANAGER_WEBHOOK_URL`,
-  `ALERTMANAGER_HEARTBEAT_URL`, `SSO_GITHUB_APP_CLIENT_SECRET`, `APP_PRIVATE_KEY`.
+  `CLUSTER_HEARTBEAT_URL`, `SSO_GITHUB_APP_CLIENT_SECRET`, `APP_PRIVATE_KEY`.
 - **Auto-generated by bootstrap:** `SOPS_AGE_KEY`, and the `prod`-environment
   `KUBE_CONFIG` / `TALOS_CONFIG`.
 

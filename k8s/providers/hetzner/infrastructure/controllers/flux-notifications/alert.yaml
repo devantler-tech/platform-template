@@ -1,6 +1,29 @@
 # Coroot sees workload health, but it cannot observe failed Flux builds,
 # applies, or health checks. Error events cover those failure classes without
 # introducing another polling workload.
+#
+# HelmRelease is watched DIRECTLY rather than left to its parent Kustomization,
+# because a failing HelmRelease can be invisible to it. With Helm remediation
+# enabled, a failed upgrade is rolled back to the last good release. The
+# HelmRelease is then Ready again, its parent Kustomization stays healthy, and
+# the release silently stops advancing. This Alert replaces the Prometheus rule
+# that used to report it.
+#
+# WHY THE NAMESPACES ARE ENUMERATED
+# There is NO namespace wildcard. notification-controller defaults an omitted
+# eventSources[].namespace to the Alert's own namespace and then matches on
+# strict equality; `name: "*"` is a wildcard over names only. A bare
+# `kind: HelmRelease, name: "*"` here would watch only flux-system and miss
+# every other release. So every namespace holding a HelmRelease or a Flux
+# Kustomization is listed.
+#
+# Enumeration drifts, and a namespace nobody watches is the very gap this Alert
+# closes, so scripts/validate-alert-coverage.sh fails CI when a HelmRelease or
+# a Kustomization appears in a namespace that is not listed below. An instance
+# that adds a release in a new namespace adds its entry here.
+#
+# notification-controller dedupes and rate-limits, so a resource that keeps
+# failing notifies once, not on every reconcile.
 apiVersion: notification.toolkit.fluxcd.io/v1beta3
 kind: Alert
 metadata:
@@ -13,5 +36,63 @@ spec:
   eventSources:
     - kind: Kustomization
       name: "*"
+      namespace: flux-system
+    - kind: HelmRelease
+      name: "*"
+      namespace: cert-manager
+    - kind: HelmRelease
+      name: "*"
+      namespace: cnpg-system
+    - kind: HelmRelease
+      name: "*"
+      namespace: dex
+    - kind: HelmRelease
+      name: "*"
+      namespace: external-dns
+    - kind: HelmRelease
+      name: "*"
+      namespace: external-secrets
+    - kind: HelmRelease
+      name: "*"
+      namespace: flux-system
+    - kind: HelmRelease
+      name: "*"
+      namespace: homepage
+    - kind: HelmRelease
+      name: "*"
+      namespace: keda
+    - kind: HelmRelease
+      name: "*"
+      namespace: kube-system
+    - kind: HelmRelease
+      name: "*"
+      namespace: kubescape
+    - kind: HelmRelease
+      name: "*"
+      namespace: kyverno
+    - kind: HelmRelease
+      name: "*"
+      namespace: longhorn-system
+    - kind: HelmRelease
+      name: "*"
+      namespace: oauth2-proxy
+    - kind: HelmRelease
+      name: "*"
+      namespace: observability
+    - kind: HelmRelease
+      name: "*"
+      namespace: openbao
+    - kind: HelmRelease
+      name: "*"
+      namespace: reloader
+    - kind: HelmRelease
+      name: "*"
+      namespace: velero
+    - kind: HelmRelease
+      name: "*"
+      namespace: vertical-pod-autoscaler
+    - kind: HelmRelease
+      name: "*"
+      namespace: whoami
   eventMetadata:
     summary: "Flux reconciliation error — production platform"

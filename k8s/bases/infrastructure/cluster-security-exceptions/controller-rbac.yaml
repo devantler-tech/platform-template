@@ -15,7 +15,7 @@ spec:
     to manage their target resources cluster-wide. This includes GitOps
     (Flux), policy engines (Kyverno), certificate managers (cert-manager),
     database operators (CNPG), backup controllers (Velero), autoscalers
-    (KEDA), monitoring (Prometheus/Coroot), virtualisation (KubeVirt,
+    (KEDA), monitoring (Coroot), virtualisation (KubeVirt,
     CDI), storage (Longhorn), service discovery (homepage), identity
     (dex), auth proxies (oauth2-proxy), and config watchers (reloader).
   posture:
@@ -51,7 +51,6 @@ spec:
             - cnpg-system
             - velero
             - keda
-            - monitoring
             - kubescape
             - vertical-pod-autoscaler
             - kubevirt

@@ -23,8 +23,8 @@ controllers to save resources (noted inline).
 - **Storage** — Longhorn (replicated block / RWX, prod via Hetzner CSI), CloudNativePG (PostgreSQL operator); see [`rwx-storage.md`](rwx-storage.md)
 - **Autoscaling** — Cluster Autoscaler (nodes), Vertical Pod Autoscaler, KEDA + KEDA HTTP add-on; see [`node-autoscaling.md`](node-autoscaling.md)
 - **Observability** — [Coroot](TEMPLATING.md#observability-coroot-is-the-default) (service health,
-  logs, traces and incidents), with kube-prometheus-stack (Prometheus and Alertmanager,
-  no web UIs) kept for the metric-backed alerts until that migration is delivered
+  logs, traces and incidents), Flux notifications for failed reconciliations and an
+  off-cluster heartbeat; see [`dr/alerting.md`](dr/alerting.md)
 - **Backup / DR** — Velero with CloudNativePG backups to S3-compatible storage (Cloudflare R2 in prod); see [`dr/`](dr)
 - **Virtualization** — KubeVirt + CDI _(local/CI only; disabled on the Hetzner/prod overlay)_
 - **Testing** — Testkube _(local/CI only; not deployed to prod)_

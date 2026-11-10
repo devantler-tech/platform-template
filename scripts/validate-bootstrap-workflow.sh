@@ -96,6 +96,19 @@ else
   if ! run_check local "HETZNER_LOCATION"; then
     fail "the configuration check required the prod-only HETZNER_LOCATION for a local bootstrap"
   fi
+  # The cluster heartbeat is production's one off-cluster dead-man signal, so a
+  # prod bootstrap without it would come up with nothing watching the cluster.
+  if run_check prod "CLUSTER_HEARTBEAT_URL"; then
+    fail "the configuration check accepted an empty CLUSTER_HEARTBEAT_URL for a prod bootstrap"
+  elif ! grep -q "CLUSTER_HEARTBEAT_URL" "$test_root/check.out"; then
+    fail "the configuration check did not name the missing CLUSTER_HEARTBEAT_URL"
+  fi
+  if ! run_check local "CLUSTER_HEARTBEAT_URL"; then
+    fail "the configuration check required the prod-only CLUSTER_HEARTBEAT_URL for a local bootstrap"
+  fi
+  if grep -q 'ALERTMANAGER_HEARTBEAT_URL' "$workflow"; then
+    fail "the bootstrap workflow still reads the retired ALERTMANAGER_HEARTBEAT_URL"
+  fi
 fi
 
 # --- A failed secret generator stops the encryption step ---
@@ -114,7 +127,7 @@ else
     printf '#!/usr/bin/env bash\n[ %s -eq 0 ] || exit %s\necho generated\n' "$1" "$1" >"$stubs/openssl"
     chmod +x "$stubs/openssl"
     rm -f "$test_root/mutations"
-    env -i PATH="$stubs:$PATH" ALERTMANAGER_HEARTBEAT_URL= CLUSTER_HEARTBEAT_URL= \
+    env -i PATH="$stubs:$PATH" CLUSTER_HEARTBEAT_URL= \
       bash -euo pipefail -c "$encrypt_script" >"$test_root/encrypt.out" 2>&1
   }
 

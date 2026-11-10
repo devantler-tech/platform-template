@@ -28,7 +28,7 @@ spec:
   # + host PID, which the validate-host-restrictions Kyverno policy blocks
   # in every namespace except the infrastructure set (kube-system among
   # them). kube-system is also exempt from the add-default-deny CNP, so no
-  # NetworkPolicy is required for Prometheus to scrape the metrics ports.
+  # NetworkPolicy is required to reach the metrics ports.
   #
   # Observability-only for now: no TracingPolicies are shipped yet, so the
   # agent emits its built-in process_exec / process_exit events. Runtime
@@ -85,18 +85,17 @@ spec:
       enableProcessNs: true
       prometheus:
         enabled: true
-        # Prometheus discovers ServiceMonitors cluster-wide
-        # (serviceMonitorSelectorNilUsesHelmValues: false), so enabling
-        # this is all that's needed for the agent metrics (:2112) to be
-        # scraped.
+        # The prometheus-operator ServiceMonitor CRD left with
+        # kube-prometheus-stack. The agent metrics endpoint (:2112) stays up;
+        # Coroot's node agent observes the pod instead of a ServiceMonitor.
         serviceMonitor:
-          enabled: true
+          enabled: false
     tetragonOperator:
       # Operator metrics (:2113); operator already ships resource requests
       # and a non-root securityContext by default.
       prometheus:
         serviceMonitor:
-          enabled: true
+          enabled: false
     # The export-stdout sidecar is on by default (export.mode: stdout), so
     # Tetragon's JSON events go to the pod's stdout -- where Coroot's node
     # agent collects them with the other container logs, with no extra

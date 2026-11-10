@@ -13,7 +13,6 @@ resources:
   - flux-operator/
   - keda/
   - keda-http-add-on/
-  - kube-prometheus-stack/
   - kubevirt/
   - kubescape/
   - kyverno/

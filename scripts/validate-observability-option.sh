@@ -48,15 +48,39 @@ opencost_reference_count() {
     jq -s '[.[] | select(type == "object" and (tojson | test("opencost"; "i")))] | length'
 }
 
-# Counts Grafana data sources that target the retired Loki service.
-loki_datasource_count() {
+# Counts what would bring the retired kube-prometheus-stack back into a render:
+# a resource of a Prometheus-operator kind, anything in (or the) `monitoring`
+# namespace, a rule or grant that names that namespace, the chart's release or
+# repository, and a chart value that switches a ServiceMonitor, PodMonitor or
+# PrometheusRule on. Vendored operators keep RBAC rules that merely name the
+# `monitoring.coreos.com` API group; those grant nothing here and are not counted.
+prometheus_stack_trace_count() {
   local rendered_path="$1"
 
   yq eval-all -o=json '.' "${rendered_path}" |
-    jq -s '[.[] |
-      select(type == "object" and .kind == "HelmRelease" and .metadata.namespace == "monitoring" and .metadata.name == "kube-prometheus-stack") |
-      .spec.values.grafana.additionalDataSources[]? |
-      select(.type == "loki" or ((.url // "") | test("loki\\.monitoring\\.svc")))] | length'
+    jq -s '[.[] | select(type == "object") |
+      select(
+        ((.apiVersion // "") | startswith("monitoring.coreos.com/")) or
+        (.kind == "Namespace" and .metadata.name == "monitoring") or
+        ((.metadata.namespace // "") == "monitoring") or
+        (.kind == "HelmRelease" and .metadata.name == "kube-prometheus-stack") or
+        (.kind == "HelmRepository" and .metadata.name == "prometheus-community") or
+        (.kind == "CiliumNetworkPolicy" and
+          ([.. | objects | .["k8s:io.kubernetes.pod.namespace"]? | select(. == "monitoring")] | length > 0)) or
+        (.kind == "ReferenceGrant" and any(.spec.from[]?; .namespace == "monitoring")) or
+        (.kind == "HelmRelease" and
+          ([.spec.values | .. | objects | to_entries[] |
+            select(.key | test("^(serviceMonitor|podMonitor|prometheusRule)$"; "i")) |
+            select((.value | type) == "object" and .value.enabled == true)] | length > 0))
+      )] | length'
+}
+
+# Counts HelmReleases in a render, to prove a zero above came from real input.
+helm_release_count() {
+  local rendered_path="$1"
+
+  yq eval-all -o=json '.' "${rendered_path}" |
+    jq -s '[.[] | select(type == "object" and .kind == "HelmRelease")] | length'
 }
 
 # Counts rendered resources whose serialized content still references Loki.
@@ -145,32 +169,38 @@ assert_heartbeat_staged_after_policy_exclusion() {
   assert_resource_count "${apps_rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 1
 }
 
-# Executes the workflow's real heartbeat preflight with bounded fixture URLs.
+# Executes the workflow's real heartbeat preflight with one bounded fixture URL.
 run_bootstrap_heartbeat_preflight() {
   local bootstrap_workflow="$1"
   local cluster_heartbeat_url="$2"
-  local alertmanager_heartbeat_url="$3"
   local validation_script
 
   validation_script="$(
-    sed -n '/# The dedicated Coroot heartbeat has an exact hc-ping.com egress/,/^[[:space:]]*fill_base()/p' "${bootstrap_workflow}" |
-      sed '$d'
+    sed -n '/# The cluster heartbeat is the one off-cluster dead-man signal and has/,/# End of the heartbeat preflight\./p' "${bootstrap_workflow}"
   )"
+  # The extraction must be exactly the preflight. An empty one would run nothing
+  # and "accept" every URL. One without its end marker ran on to the end of the
+  # workflow, and executing that would run the secret writes against this checkout.
+  if [[ "${validation_script}" != *'CLUSTER_HEARTBEAT_URL'* ||
+    "${validation_script}" != *'# End of the heartbeat preflight.'* ]] ||
+    grep -Eq '(^|[^[:alnum:]_.-])(yq|sops)([^[:alnum:]_.-]|$)' <<<"${validation_script}"; then
+    echo "could not extract exactly the heartbeat preflight from ${bootstrap_workflow}" >&2
+    return 2
+  fi
   env \
     CLUSTER_HEARTBEAT_URL="${cluster_heartbeat_url}" \
-    ALERTMANAGER_HEARTBEAT_URL="${alertmanager_heartbeat_url}" \
     bash -c "set -euo pipefail
 ${validation_script}" >/dev/null 2>&1
 }
 
-# Proves that bootstrap accepts two canonical checks while rejecting aliases,
-# alternate healthchecks.io operations, and noncanonical check identifiers.
+# Proves that bootstrap accepts one canonical check and an unset one, while
+# rejecting every other spelling: a URL the cluster's egress policy cannot reach
+# would encrypt a monitor that is silently dead.
 assert_bootstrap_heartbeat_identity_contract() {
   local bootstrap_workflow="$1"
   local cluster_url='https://hc-ping.com/11111111-1111-4111-8111-111111111111'
-  local alertmanager_url='https://hc-ping.com/22222222-2222-4222-8222-222222222222'
   local cluster_alias
-  local alertmanager_alias
+  local status
   local -a cluster_aliases=(
     "${cluster_url}#cluster"
     "${cluster_url}?source=cluster"
@@ -181,41 +211,26 @@ assert_bootstrap_heartbeat_identity_contract() {
     "${cluster_url}/1"
     'https://HC-PING.com/11111111-1111-4111-8111-111111111111'
     'https://hc-ping.com:443/11111111-1111-4111-8111-111111111111'
+    'https://user@hc-ping.com/11111111-1111-4111-8111-111111111111'
+    'http://hc-ping.com/11111111-1111-4111-8111-111111111111'
     'https://hc-ping.com/project-slug/check-slug'
     'https://hc-ping.com/AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA'
-  )
-  local -a alertmanager_aliases=(
-    "${cluster_url}"
-    "${cluster_url}#alertmanager"
-    "${cluster_url}?source=alertmanager"
-    "${cluster_url}/"
-    "${cluster_url}/start"
-    "${cluster_url}/fail"
-    "${cluster_url}/log"
-    "${cluster_url}/1"
-    'https://HC-PING.com/11111111-1111-4111-8111-111111111111'
-    'https://hc-ping.com:443/11111111-1111-4111-8111-111111111111'
-    'https://user@hc-ping.com/11111111-1111-4111-8111-111111111111'
-    'https://hc-ping.com/project-slug/check-slug'
+    'https://example.com/11111111-1111-4111-8111-111111111111'
   )
 
-  if ! run_bootstrap_heartbeat_preflight "${bootstrap_workflow}" "${cluster_url}" "${alertmanager_url}"; then
-    echo "bootstrap must accept two distinct canonical healthchecks.io checks" >&2
+  if ! run_bootstrap_heartbeat_preflight "${bootstrap_workflow}" "${cluster_url}"; then
+    echo "bootstrap must accept a canonical healthchecks.io check" >&2
     return 1
   fi
-  if ! run_bootstrap_heartbeat_preflight "${bootstrap_workflow}" "" "${alertmanager_url}"; then
-    echo "bootstrap must keep an unset direct-cluster check valid" >&2
+  if ! run_bootstrap_heartbeat_preflight "${bootstrap_workflow}" ""; then
+    echo "bootstrap must keep an unset cluster check valid for a local bootstrap" >&2
     return 1
   fi
   for cluster_alias in "${cluster_aliases[@]}"; do
-    if run_bootstrap_heartbeat_preflight "${bootstrap_workflow}" "${cluster_alias}" "${alertmanager_url}"; then
-      echo "bootstrap must reject every noncanonical direct-cluster check URL" >&2
-      return 1
-    fi
-  done
-  for alertmanager_alias in "${alertmanager_aliases[@]}"; do
-    if run_bootstrap_heartbeat_preflight "${bootstrap_workflow}" "${cluster_url}" "${alertmanager_alias}"; then
-      echo "bootstrap must reject every alias of the direct-cluster check" >&2
+    status=0
+    run_bootstrap_heartbeat_preflight "${bootstrap_workflow}" "${cluster_alias}" || status=$?
+    if [[ "${status}" != "1" ]]; then
+      echo "bootstrap must reject every noncanonical cluster check URL (${cluster_alias}: status ${status})" >&2
       return 1
     fi
   done
@@ -420,29 +435,7 @@ assert_coroot_heartbeat_substitution() {
   fi
 }
 
-# Validates that the default profile still produces the Watchdog rule.
-assert_watchdog_enabled() {
-  local rendered_path="$1"
-  local matches
-
-  matches="$(
-    yq eval-all -o=json '.' "${rendered_path}" |
-      jq -s '[.[] |
-        select(.kind == "HelmRelease" and .metadata.namespace == "monitoring" and .metadata.name == "kube-prometheus-stack") |
-        select(.spec.values.defaultRules.create == true) |
-        select((.spec.values.defaultRules.rules.general // true) == true) |
-        select((.spec.values.defaultRules.disabled.Watchdog // false) == false) |
-        select([.spec.values.alertmanager.config.receivers[]? |
-          select(.name == "heartbeat") |
-          select(.webhook_configs[0].url == "${alertmanager_heartbeat_url:=https://example.invalid/no-heartbeat-configured}")] | length == 1)] | length'
-  )"
-  if [[ "${matches}" != "1" ]]; then
-    echo "kube-prometheus-stack must keep Watchdog on the distinct Alertmanager pipeline monitor in ${rendered_path}" >&2
-    return 1
-  fi
-}
-
-# Counts the Dex public-client redirect that exists only for Grafana's native OIDC login.
+# Counts the Dex public-client redirect that existed only for Grafana's native OIDC login.
 grafana_dex_redirect_count() {
   local rendered_path="$1"
 
@@ -453,55 +446,20 @@ grafana_dex_redirect_count() {
       select(. == "https://grafana.${domain}/login/generic_oauth")] | length'
 }
 
-# Reads whether the kube-prometheus-stack release still deploys Grafana.
-grafana_enabled() {
+# Verifies that a rendered payload carries nothing of the retired
+# kube-prometheus-stack. Controller payloads must also hold releases at all, so
+# an empty or truncated render cannot pass as a clean one.
+assert_prometheus_stack_absent() {
   local rendered_path="$1"
+  local traces
 
-  yq eval-all -o=json '.' "${rendered_path}" |
-    jq -sr '[.[] |
-      select(type == "object" and .kind == "HelmRelease" and .metadata.namespace == "monitoring" and .metadata.name == "kube-prometheus-stack") |
-      .spec.values.grafana.enabled] | map(tostring) | join(",")'
-}
-
-# Counts the network rules that exist only to serve the UIs: the auth proxy's egress to
-# the monitoring namespace, and the monitoring namespace's ingress from the auth proxy
-# and from the Gateway to Grafana's port.
-kps_ui_network_rule_count() {
-  local rendered_path="$1"
-
-  yq eval-all -o=json '.' "${rendered_path}" |
-    jq -s '
-      ([.[] | select(type == "object" and .kind == "CiliumNetworkPolicy" and .metadata.namespace == "oauth2-proxy" and .metadata.name == "allow-auth-proxy") |
-        .spec.egress[]? | select(any(.toEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "monitoring"))] | length) +
-      ([.[] | select(type == "object" and .kind == "CiliumNetworkPolicy" and .metadata.namespace == "monitoring" and .metadata.name == "allow-monitoring") |
-        .spec.ingress[]? |
-        select(any(.fromEndpoints[]?; .matchLabels["k8s:io.kubernetes.pod.namespace"] == "oauth2-proxy") or
-               any(.toPorts[]?.ports[]?; .port == "3000"))] | length)'
-}
-
-# Verifies the Grafana, Prometheus and Alertmanager UI surfaces for one profile.
-# expected_routes is 1 when the UIs are published (default) and 0 when retired (Coroot).
-assert_kps_ui_surfaces() {
-  local controllers_path="$1"
-  local infrastructure_path="$2"
-  local expected_routes="$3"
-  local expected_grafana="$4"
-  local route
-
-  for route in grafana prometheus alertmanager; do
-    assert_resource_count "${controllers_path}" HTTPRoute monitoring "${route}" "${expected_routes}"
-  done
-  assert_resource_count "${infrastructure_path}" ExternalSecret monitoring grafana-oidc "${expected_routes}"
-  if [[ "$(grafana_dex_redirect_count "${controllers_path}")" != "${expected_routes}" ]]; then
-    echo "expected ${expected_routes} Dex redirect(s) for Grafana in ${controllers_path}" >&2
+  traces="$(prometheus_stack_trace_count "${rendered_path}")"
+  if [[ "${traces}" != "0" ]]; then
+    echo "expected no kube-prometheus-stack resource, monitoring namespace reference or enabled Prometheus-operator monitor in ${rendered_path}, found ${traces}" >&2
     return 1
   fi
-  if [[ "$(kps_ui_network_rule_count "${controllers_path}")" != "$((expected_routes * 3))" ]]; then
-    echo "expected $((expected_routes * 3)) UI-only network rule(s) for the kube-prometheus-stack UIs in ${controllers_path}" >&2
-    return 1
-  fi
-  if [[ "$(grafana_enabled "${controllers_path}")" != "${expected_grafana}" ]]; then
-    echo "expected kube-prometheus-stack grafana.enabled=${expected_grafana} in ${controllers_path}" >&2
+  if [[ "$(grafana_dex_redirect_count "${rendered_path}")" != "0" ]]; then
+    echo "expected no Dex redirect for Grafana in ${rendered_path}" >&2
     return 1
   fi
 }
@@ -526,12 +484,20 @@ assert_flux_notification_contract() {
       jq -s '[.[] |
         select(.apiVersion == "notification.toolkit.fluxcd.io/v1beta3") |
         select(.kind == "Alert" and .metadata.namespace == "flux-system" and .metadata.name == "platform-reconciliation") |
-        select(.spec == {
+        select((.spec | del(.eventSources)) == {
           "providerRef":{"name":"slack"},
           "eventSeverity":"error",
-          "eventSources":[{"kind":"Kustomization","name":"*"}],
           "eventMetadata":{"summary":"Flux reconciliation error — production platform"}
-        })] | length'
+        }) |
+        # The cluster Kustomizations first, then one whole-namespace HelmRelease
+        # source per namespace. Which namespaces must be listed is proven against
+        # the renders by scripts/validate-alert-coverage.sh.
+        select(.spec.eventSources[0] == {"kind":"Kustomization","name":"*","namespace":"flux-system"}) |
+        select((.spec.eventSources[1:] | length) > 0) |
+        select(all(.spec.eventSources[1:][];
+          (keys == ["kind","name","namespace"]) and .kind == "HelmRelease" and .name == "*" and
+          (.namespace | type == "string" and length > 0))) |
+        select(([.spec.eventSources[1:][].namespace] | unique | length) == (.spec.eventSources[1:] | length))] | length'
   )"
   dependency_alert_contract="$(
     yq eval-all -o=json '.' "${rendered_path}" |
@@ -560,37 +526,6 @@ assert_flux_notification_contract() {
 
   if [[ "${provider_contract}" != "1" || "${error_alert_contract}" != "1" || "${dependency_alert_contract}" != "1" || "${secret_contract}" != "1" ]]; then
     echo "production Coroot controllers must render exact Flux error and dependency-wait paths through the existing Slack webhook" >&2
-    return 1
-  fi
-}
-
-# Ensures the production Coroot profile does not send Kustomization failures
-# through both Flux notification-controller and the legacy Prometheus rule.
-assert_legacy_flux_alert_deduplicated() {
-  local rendered_path="$1"
-  local matches
-
-  matches="$(
-    yq eval-all -o=json '.' "${rendered_path}" |
-      jq -s '[.[] |
-        select(.apiVersion == "monitoring.coreos.com/v1") |
-        select(.kind == "PrometheusRule" and .metadata.namespace == "monitoring" and .metadata.name == "platform-critical") |
-        .spec.groups[] |
-        select(.name == "flux") |
-        select(.rules == [{
-          "alert":"FluxHelmReleaseNotReady",
-          "expr":"gotk_reconcile_condition{type=\"Ready\",status=\"False\",kind=\"HelmRelease\"} == 1\n",
-          "for":"15m",
-          "labels":{"severity":"critical"},
-          "annotations":{
-            "summary":"Flux HelmRelease {{ $labels.namespace }}/{{ $labels.name }} not Ready",
-            "description":"kubectl describe HelmRelease -n {{ $labels.namespace }} {{ $labels.name }}"
-          }
-        }])] | length'
-  )"
-
-  if [[ "${matches}" != "1" ]]; then
-    echo "production Coroot must retain only HelmRelease coverage in the legacy Flux Prometheus rule" >&2
     return 1
   fi
 }
@@ -924,7 +859,13 @@ for retired_path in \
   k8s/providers/docker/apps-coroot \
   k8s/providers/hetzner/infrastructure-controllers-coroot \
   k8s/providers/hetzner/infrastructure-coroot \
-  k8s/providers/hetzner/apps-coroot; do
+  k8s/providers/hetzner/apps-coroot \
+  k8s/bases/infrastructure/controllers/kube-prometheus-stack \
+  k8s/bases/infrastructure/alerts \
+  k8s/bases/infrastructure/external-secrets/alertmanager-webhook.yaml \
+  k8s/bases/infrastructure/vault-seed/push-secret-seed-alertmanager.yaml \
+  k8s/providers/hetzner/infrastructure/controllers/kube-prometheus-stack \
+  k8s/providers/hetzner/infrastructure/patches/retain-helm-release-alert.yaml; do
   if [[ -e "${repo_root}/${retired_path}" ]]; then
     echo "retired observability source must stay deleted: ${retired_path}" >&2
     exit 1
@@ -948,10 +889,6 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease monitoring alloy 0
   assert_resource_count "${rendered_path}" HelmRelease monitoring loki 0
   assert_resource_count "${rendered_path}" HelmRepository monitoring grafana 0
-  if [[ "$(loki_datasource_count "${rendered_path}")" != "0" ]]; then
-    echo "the Grafana Loki datasource must stay removed with Loki" >&2
-    exit 1
-  fi
 done
 # A leftover Loki address can sit in any payload (a Coroot, homepage or
 # datasource setting), so every render is searched, not only the controllers.
@@ -975,23 +912,31 @@ assert_heartbeat_staged_after_policy_exclusion "${hetzner_controllers}" "${hetzn
 assert_auth_proxy_with_coroot "${docker_controllers}"
 assert_auth_proxy_with_coroot "${hetzner_controllers}"
 
-# Coroot is the observability UI, so the Grafana, Prometheus and Alertmanager
-# UIs, their routes, SSO redirect and OIDC secret are not published.
-assert_kps_ui_surfaces "${docker_controllers}" "${docker_infrastructure}" 0 false
-assert_kps_ui_surfaces "${hetzner_controllers}" "${hetzner_infrastructure}" 0 false
+# kube-prometheus-stack is retired: no payload carries a Prometheus-operator
+# resource, the monitoring namespace, a rule or grant that names it, or a chart
+# value that would need the operator's definitions. The controller payloads must
+# hold releases at all, so a truncated render cannot pass as a clean one.
+for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
+  if [[ "$(helm_release_count "${rendered_path}")" -lt 10 ]]; then
+    echo "expected the controller payload ${rendered_path} to hold its HelmReleases" >&2
+    exit 1
+  fi
+done
+for rendered_path in "${docker_controllers}" "${docker_infrastructure}" "${docker_apps}" \
+  "${hetzner_controllers}" "${hetzner_infrastructure}" "${hetzner_apps}" "${coroot_base}"; do
+  assert_prometheus_stack_absent "${rendered_path}"
+done
 
 for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 1
   assert_resource_count "${rendered_path}" Coroot observability coroot 0
   assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
-  assert_resource_count "${rendered_path}" HelmRelease monitoring kube-prometheus-stack 1
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 1
   assert_resource_count "${rendered_path}" CronJob observability cluster-heartbeat 0
   assert_resource_count "${rendered_path}" Secret observability cluster-heartbeat 0
   assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 0
   assert_opencost_absent "${rendered_path}"
   assert_coroot_sso_controller_contract "${rendered_path}"
-  assert_watchdog_enabled "${rendered_path}"
 done
 
 # The demo apps prove each apps check examined a real render rather than an
@@ -1032,7 +977,6 @@ assert_resource_count "${hetzner_infrastructure}" Provider flux-system slack 0
 assert_resource_count "${hetzner_infrastructure}" Alert flux-system platform-reconciliation 0
 assert_resource_count "${hetzner_infrastructure}" Alert flux-system platform-dependency-wait 0
 assert_resource_count "${hetzner_infrastructure}" Secret flux-system slack-webhook 0
-assert_legacy_flux_alert_deduplicated "${hetzner_infrastructure}"
 assert_opencost_absent "${hetzner_infrastructure}"
 assert_opencost_absent "${docker_apps}"
 assert_opencost_absent "${hetzner_apps}"
@@ -1174,24 +1118,18 @@ for config_path in ksail.yaml ksail.prod.yaml; do
   fi
 done
 for documented_boundary in \
-  "The stack is transitional in one respect." \
-  "It runs Coroot, has no OpenCost," \
+  "The stack runs Coroot and nothing beside it." \
+  "It has no OpenCost," \
   "has no Loki or Alloy log path" \
+  "has no kube-prometheus-stack" \
   "stages one hardened \`cluster-heartbeat\` CronJob" \
-  "uses a separate optional \`CLUSTER_HEARTBEAT_URL\` secret" \
-  "Never point both inputs at the same monitor" \
+  "a production bootstrap requires the" \
   "permits only \`hc-ping.com:443\`" \
   "Bootstrap accepts only a canonical" \
-  "compares check identities" \
   "dependent apps layer stages the heartbeat only after" \
   "Secret-backed environment variable" \
   "stdin configuration" \
   "platform-critical priority" \
-  "keep Watchdog unchanged" \
-  "preserves a dead-man signal" \
-  "keeps kube-prometheus-stack" \
-  "the Grafana, Prometheus and Alertmanager" \
-  "Prometheus and Alertmanager keep running for alerting" \
   "Cost allocation is therefore unavailable" \
   "reuses the same \`alertmanager_webhook_url\`" \
   "production to report failed reconciliations" \
@@ -1202,55 +1140,58 @@ for documented_boundary in \
   "Local / Docker Coroot stays notification-free" \
   "Flux notification-controller now owns reconciliation errors" \
   "controller layer applies both Flux alerts" \
+  "every \`HelmRelease\`" \
   "narrow info-severity path for dependency waits" \
-  "legacy Prometheus rule keeps only HelmRelease coverage" \
-  "Kube-prometheus-stack keeps owning its remaining metric-backed" \
+  "scripts/validate-alert-coverage.sh" \
+  "adds that namespace to the alert" \
+  "are not alerted today" \
   "https://observability.<your-domain>" \
   "Dex-backed oauth2-proxy" \
   "no direct Gateway route to the Coroot service" \
   "the Admin role only behind that complete" \
   "render exactly what the default paths render" \
   "migrates with its next template sync" \
-  "Flux removes the Loki, Alloy and OpenCost releases" \
-  "Delete that leftover PersistentVolumeClaim"; do
+  "Flux removes" \
+  "the old data is deleted" \
+  "Helm does not delete CustomResourceDefinitions" \
+  "\`ALERTMANAGER_HEARTBEAT_URL\` is no longer read" \
+  "allow-node-exporter-ingress.yaml"; do
   if ! grep -Fq "${documented_boundary}" "${templating_guide}"; then
     echo "templating guide does not retain Coroot boundary: ${documented_boundary}" >&2
     exit 1
   fi
 done
 
-if grep -R -n 'alertmanager_heartbeat_host' \
-  "${repo_root}/.github/workflows/bootstrap.yaml" \
-  "${repo_root}/docs" \
-  "${repo_root}/k8s"; then
-  echo "Coroot heartbeat must not add an instance-owned host variable" >&2
-  exit 1
-fi
-
 alerting_guide="${repo_root}/docs/dr/alerting.md"
 for documented_heartbeat_boundary in \
-  "Two independent dead-man checks" \
-  "never give them the same ping URL" \
-  "Watchdog stays enabled" \
+  "There is no kube-prometheus-stack" \
+  "One off-cluster dead-man check" \
   "cluster_heartbeat_url" \
-  "The three secret inputs" \
+  "The two secret inputs" \
   "\`hc-ping.com:443\`" \
-  "Bootstrap compares" \
-  "canonical check identities" \
+  "Bootstrap rejects" \
   "dependent apps layer" \
-  "while Watchdog preserves" \
   "curl as stdin configuration" \
   "Flux notification-controller now owns reconciliation errors" \
   "Two event-driven \`Alert\` objects" \
   "The controller layer applies them before it waits" \
-  "\`FluxHelmReleaseNotReady\`" \
-  "watch every \`Kustomization\`" \
+  "every \`Kustomization\` and every \`HelmRelease\`" \
+  "Why HelmRelease is watched directly" \
+  "scripts/validate-alert-coverage.sh" \
   "Local / Docker renders no Slack" \
-  "\`kube-prometheus-stack\` remains transitional for Watchdog" \
-  "Alertmanager web UIs are" \
-  "port-forward svc/kube-prometheus-stack-alertmanager 9093"; do
+  "Not alerted today" \
+  "certificate expiry"; do
   if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
-    echo "alerting guide does not retain heartbeat boundary: ${documented_heartbeat_boundary}" >&2
+    echo "alerting guide does not retain alerting boundary: ${documented_heartbeat_boundary}" >&2
+    exit 1
+  fi
+done
+
+# Operator documentation must not send anyone to a service that no longer exists.
+for stale_doc in "${templating_guide}" "${alerting_guide}" \
+  "${repo_root}/docs/BOOTSTRAP.md" "${repo_root}/docs/ARCHITECTURE.md" "${repo_root}/README.md"; do
+  if grep -n -E 'svc/kube-prometheus-stack|Watchdog|alertmanager_heartbeat_url|grafana\.\$\{domain\}' "${stale_doc}"; then
+    echo "documentation still describes the retired kube-prometheus-stack: ${stale_doc}" >&2
     exit 1
   fi
 done
@@ -1258,15 +1199,9 @@ done
 bootstrap_workflow="${repo_root}/.github/workflows/bootstrap.yaml"
 for bootstrap_boundary in \
   "CLUSTER_HEARTBEAT_URL: \${{ secrets.CLUSTER_HEARTBEAT_URL }}" \
-  "heartbeat_url_pattern='^https://hc-ping\\.com/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$'" \
-  "heartbeat_host_pattern='^https?://([^/?#]*@)?hc-ping\\.com([:/?#]|$)'" \
-  "alertmanager_heartbeat_url_lower=\"\$(printf '%s' \"\${ALERTMANAGER_HEARTBEAT_URL}\" | tr '[:upper:]' '[:lower:]')\"" \
+  "heartbeat_url_pattern='^https://hc-ping\\.com/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'" \
   'CLUSTER_HEARTBEAT_URL must be a canonical https://hc-ping.com/<lowercase-uuid> URL or be unset' \
-  'ALERTMANAGER_HEARTBEAT_URL must be canonical when it uses hc-ping.com' \
-  "cluster_heartbeat_check_id=\"\${BASH_REMATCH[1]}\"" \
-  "alertmanager_heartbeat_check_id=\"\${BASH_REMATCH[1]}\"" \
-  "[ \"\${cluster_heartbeat_check_id}\" = \"\${alertmanager_heartbeat_check_id}\" ]; then" \
-  'CLUSTER_HEARTBEAT_URL must use a different external check than ALERTMANAGER_HEARTBEAT_URL' \
+  'required+=(HCLOUD_TOKEN CLUSTER_HEARTBEAT_URL HETZNER_LOCATION)' \
   '.stringData.cluster_heartbeat_url = strenv(CLUSTER_HEARTBEAT_URL)'; do
   if ! grep -Fq "${bootstrap_boundary}" "${bootstrap_workflow}"; then
     echo "bootstrap workflow does not retain cluster-heartbeat boundary: ${bootstrap_boundary}" >&2
@@ -1274,8 +1209,22 @@ for bootstrap_boundary in \
   fi
 done
 
-if grep -Fq 'alertmanager_heartbeat_url' "${repo_root}/k8s/bases/apps/cluster-heartbeat/cron-job.yaml"; then
-  echo "Coroot CronJob must not share the Alertmanager pipeline monitor" >&2
+# The Alertmanager heartbeat is retired with its stack: nothing may read it again.
+# The bootstrap workflow may only delete the old key, and the protected placeholder
+# secrets (`*.enc.yaml`, which automation never edits) are the one place it may
+# still be listed until the workflow drops it.
+if grep -n 'ALERTMANAGER_HEARTBEAT_URL' "${bootstrap_workflow}" ||
+  grep 'alertmanager_heartbeat' "${bootstrap_workflow}" |
+  grep -v -x -E '[[:space:]]*del\(\.stringData\.alertmanager_heartbeat_url\) \|'; then
+  echo "the bootstrap workflow must not read the retired Alertmanager heartbeat" >&2
+  exit 1
+fi
+if ! grep -q -x -E '[[:space:]]*del\(\.stringData\.alertmanager_heartbeat_url\) \|' "${bootstrap_workflow}"; then
+  echo "the bootstrap workflow must drop the retired Alertmanager heartbeat key from the prod secret" >&2
+  exit 1
+fi
+if grep -R -n -i --exclude='*.enc.yaml' 'alertmanager_heartbeat' "${repo_root}/k8s"; then
+  echo "no manifest may read the retired Alertmanager heartbeat" >&2
   exit 1
 fi
 

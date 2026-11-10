@@ -9,6 +9,5 @@ resources:
   - push-secret-oauth2-proxy-cookie-secret.yaml
   - push-secret-seed-r2-credentials.yaml
   - push-secret-seed-cloudflare.yaml
-  - push-secret-seed-alertmanager.yaml
   - push-secret-seed-github-app.yaml
   - push-secret-seed-velero-repo-credentials.yaml
