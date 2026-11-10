@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pins both scaffolded default-deny Cilium policies to the valid, composable
+# Pins every scaffolded default-deny Cilium policy to the valid, composable
 # shape proven by the matching reference-platform fix (platform#3501).
 
 set -euo pipefail
@@ -49,4 +49,20 @@ direct_spec="$(yq -o=json -I=0 '.spec' "${direct_policy}")"
 check_spec 'namespace-wide generated default-deny' "${generated_spec}"
 check_spec 'oauth2-proxy direct default-deny' "${direct_spec}"
 
-printf 'PASS: both scaffolded Cilium default-deny policies use one empty allow rule per direction\n'
+# The observability namespace has its own generated default-deny, which leaves
+# the purpose-labelled cluster heartbeat to its dedicated policy. Apart from that
+# selector it must be the same composable floor: a deny rule there would override
+# the allow policies Coroot needs to reach its stores, its agents and DNS.
+readonly heartbeat_exclusion='{"matchExpressions":[{"key":"platform-heartbeat","operator":"NotIn","values":["true"]}]}'
+scoped_spec="$(yq -o=json -I=0 \
+  '.spec.rules[] | select(.name == "generate-default-deny-observability") | .generate.data.spec' \
+  "${generated_policy}")"
+[[ -n "${scoped_spec}" && "${scoped_spec}" != 'null' ]] ||
+  fail 'observability generated default-deny: no policy spec found'
+scoped_selector="$(printf '%s' "${scoped_spec}" | yq -p=json -o=json -I=0 '.endpointSelector | sort_keys(..)')"
+[[ "${scoped_selector}" == "${heartbeat_exclusion}" ]] ||
+  fail "observability generated default-deny: expected the heartbeat exclusion ${heartbeat_exclusion}, got ${scoped_selector}"
+check_spec 'observability generated default-deny (apart from its selector)' \
+  "$(printf '%s' "${scoped_spec}" | yq -p=json -o=json -I=0 '.endpointSelector = {}')"
+
+printf 'PASS: every scaffolded Cilium default-deny policy uses one empty allow rule per direction\n'

@@ -130,24 +130,6 @@ assert_flux_dependency() {
   fi
 }
 
-# Verifies that the default profiles render no Coroot-owned resources.
-assert_default_off() {
-  local rendered_path="$1"
-
-  assert_resource_count "${rendered_path}" HelmRelease observability coroot-operator 0
-  assert_resource_count "${rendered_path}" Coroot observability coroot 0
-  assert_resource_count "${rendered_path}" HelmRelease observability audit-log-forwarder 0
-  assert_resource_count "${rendered_path}" Provider flux-system slack 0
-  assert_resource_count "${rendered_path}" Alert flux-system platform-reconciliation 0
-  assert_resource_count "${rendered_path}" Alert flux-system platform-dependency-wait 0
-  assert_resource_count "${rendered_path}" Secret flux-system slack-webhook 0
-  assert_resource_count "${rendered_path}" CronJob observability cluster-heartbeat 0
-  assert_resource_count "${rendered_path}" Secret observability cluster-heartbeat 0
-  assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-coroot 0
-  assert_resource_count "${rendered_path}" CiliumNetworkPolicy observability allow-cluster-heartbeat 0
-  assert_resource_count "${rendered_path}" HTTPRoute observability coroot 0
-}
-
 # Verifies that the heartbeat workload reconciles only in the apps layer,
 # after infrastructure has replaced the observability namespace's generated
 # deny policies with the scoped selectors.
@@ -642,8 +624,8 @@ assert_heartbeat_policy_exclusion() {
       expected_spec='{
         "endpointSelector":{"matchExpressions":[{"key":"platform-heartbeat","operator":"NotIn","values":["true"]}]},
         "enableDefaultDeny":{"ingress":true,"egress":true},
-        "ingressDeny":[{}],
-        "egressDeny":[{}]
+        "ingress":[{}],
+        "egress":[{}]
       }'
     else
       expected_spec='{
@@ -671,52 +653,6 @@ assert_heartbeat_policy_exclusion() {
   done
 }
 
-# Verifies that default profiles retain the global deny and DNS selectors.
-assert_heartbeat_policy_exclusion_absent() {
-  local rendered_path="$1"
-  local rule_name
-  local matches
-
-  for rule_name in generate-default-deny generate-allow-dns; do
-    matches="$(
-      yq eval-all -o=json '.' "${rendered_path}" |
-        jq -s --arg rule_name "${rule_name}" '[.[] |
-          select(.kind == "ClusterPolicy" and .metadata.name == "add-default-deny") |
-          .spec.rules[] |
-          select(.name == $rule_name) |
-          select(((.exclude.any[0].resources.names // []) | index("observability")) == null) |
-          select(.generate.data.spec.endpointSelector == {})] | length'
-    )"
-    if [[ "${matches}" != "1" ]]; then
-      echo "default add-default-deny/${rule_name} must keep its global selector in ${rendered_path}" >&2
-      return 1
-    fi
-  done
-
-  matches="$(
-    yq eval-all -o=json '.' "${rendered_path}" |
-      jq -s '[.[] |
-        select(.kind == "ClusterPolicy" and .metadata.name == "add-default-deny") |
-        .spec.rules[] |
-        select(.name == "generate-default-deny-observability" or .name == "generate-allow-dns-observability")] | length'
-  )"
-  if [[ "${matches}" != "0" ]]; then
-    echo "default add-default-deny must not contain Coroot heartbeat exceptions in ${rendered_path}" >&2
-    return 1
-  fi
-}
-
-# Verifies that a default controller profile retains the complete OpenCost surface.
-assert_opencost_present() {
-  local rendered_path="$1"
-
-  assert_resource_count "${rendered_path}" Namespace "" opencost 1
-  assert_resource_count "${rendered_path}" HelmRepository opencost opencost 1
-  assert_resource_count "${rendered_path}" HelmRelease opencost opencost 1
-  assert_resource_count "${rendered_path}" HTTPRoute opencost opencost 1
-  assert_resource_count "${rendered_path}" CiliumNetworkPolicy opencost allow-opencost 1
-}
-
 # Verifies that a rendered profile contains no OpenCost-owned resources.
 assert_opencost_resources_absent() {
   local rendered_path="$1"
@@ -742,38 +678,32 @@ assert_opencost_absent() {
   fi
 }
 
-# Verifies that Coroot reuses the hardened auth proxy without weakening it.
+# Verifies that the hardened auth proxy fronts exactly the homepage, Hubble and Coroot UIs.
 assert_auth_proxy_with_coroot() {
-  local default_rendered_path="$1"
-  local opt_in_rendered_path="$2"
+  local rendered_path="$1"
   local expected
   local actual
 
   expected="$(
-    yq eval-all -o=json 'select(.kind == "ConfigMap" and .metadata.namespace == "oauth2-proxy" and .metadata.name == "auth-proxy-config") | .data."dynamic.yaml" | from_yaml' "${default_rendered_path}" |
-      jq -S -c '
-        del(.http.routers.opencost, .http.services.opencost) |
-        del(.http.routers.prometheus, .http.services.prometheus) |
-        del(.http.routers.alertmanager, .http.services.alertmanager) |
-        .http.routers.coroot = {
-          rule: "Host(`observability.${domain}`)",
-          entryPoints: ["web"],
-          service: "coroot"
-        } |
-        .http.services.coroot = {
-          loadBalancer: {
-            servers: [
-              {url: "http://coroot-coroot.observability.svc.cluster.local:8080"}
-            ]
-          }
-        }'
+    jq -n -S -c '{
+      routers: {
+        coroot: {rule: "Host(`observability.${domain}`)", entryPoints: ["web"], service: "coroot"},
+        homepage: {rule: "Host(`${domain}`)", entryPoints: ["web"], service: "homepage"},
+        hubble: {rule: "Host(`hubble.${domain}`)", entryPoints: ["web"], service: "hubble-ui"}
+      },
+      services: {
+        coroot: {loadBalancer: {servers: [{url: "http://coroot-coroot.observability.svc.cluster.local:8080"}]}},
+        homepage: {loadBalancer: {servers: [{url: "http://homepage.homepage.svc.cluster.local:80"}]}},
+        "hubble-ui": {loadBalancer: {servers: [{url: "http://keda-add-ons-http-interceptor-proxy.keda.svc.cluster.local:8080"}]}}
+      }
+    }'
   )"
   actual="$(
-    yq eval-all -o=json 'select(.kind == "ConfigMap" and .metadata.namespace == "oauth2-proxy" and .metadata.name == "auth-proxy-config") | .data."dynamic.yaml" | from_yaml' "${opt_in_rendered_path}" |
-      jq -S -c '.'
+    yq eval-all -o=json 'select(.kind == "ConfigMap" and .metadata.namespace == "oauth2-proxy" and .metadata.name == "auth-proxy-config") | .data."dynamic.yaml" | from_yaml' "${rendered_path}" |
+      jq -S -c '.http'
   )"
   if [[ "${actual}" != "${expected}" ]]; then
-    echo "opt-in auth-proxy config must replace OpenCost, Prometheus and Alertmanager with the authenticated Coroot UI" >&2
+    echo "auth-proxy config must route exactly the homepage, Hubble and the authenticated Coroot UI in ${rendered_path}" >&2
     return 1
   fi
 }
@@ -897,25 +827,6 @@ policy_rules_without_namespace_exclusion() {
        end'
 }
 
-# Counts policy rules that carry a namespace exclusion.
-policy_rules_with_namespace_exclusion() {
-  local rendered_path="$1"
-  local policy_name="$2"
-  local namespace="$3"
-
-  yq eval-all -o=json '.' "${rendered_path}" |
-    jq -s -r \
-      --arg policy_name "${policy_name}" \
-      --arg namespace "${namespace}" \
-      '[.[] | select(type == "object" and .kind == "ClusterPolicy" and .metadata.name == $policy_name)] as $policies |
-       if ($policies | length) != 1 then
-         "invalid-policy-count:\($policies | length)"
-       else
-         [$policies[0].spec.rules[] |
-          select(([.exclude.any[]?.resources.namespaces[]?] | index($namespace)) != null)] | length
-       end'
-}
-
 # Verifies that every rule in a policy excludes the selected namespace.
 assert_namespace_excluded_from_all_policy_rules() {
   local rendered_path="$1"
@@ -926,20 +837,6 @@ assert_namespace_excluded_from_all_policy_rules() {
   actual="$(policy_rules_without_namespace_exclusion "${rendered_path}" "${policy_name}" "${namespace}")"
   if [[ "${actual}" != "0" ]]; then
     echo "expected ClusterPolicy/${policy_name} to exclude namespace ${namespace} from every rule in ${rendered_path}, found ${actual} unprotected rule(s)" >&2
-    return 1
-  fi
-}
-
-# Verifies that no rule in a policy excludes the selected namespace.
-assert_namespace_not_excluded_from_policy() {
-  local rendered_path="$1"
-  local policy_name="$2"
-  local namespace="$3"
-  local actual
-
-  actual="$(policy_rules_with_namespace_exclusion "${rendered_path}" "${policy_name}" "${namespace}")"
-  if [[ "${actual}" != "0" ]]; then
-    echo "expected ClusterPolicy/${policy_name} to keep namespace ${namespace} enforced in ${rendered_path}, found ${actual} excluded rule(s)" >&2
     return 1
   fi
 }
@@ -971,16 +868,10 @@ assert_security_exception_namespace_count() {
   fi
 }
 
-local_controllers_default="${tmp_dir}/local-controllers-default.yaml"
-local_infrastructure_default="${tmp_dir}/local-infrastructure-default.yaml"
-local_apps_default="${tmp_dir}/local-apps-default.yaml"
-prod_controllers_default="${tmp_dir}/prod-controllers-default.yaml"
-prod_infrastructure_default="${tmp_dir}/prod-infrastructure-default.yaml"
-prod_apps_default="${tmp_dir}/prod-apps-default.yaml"
-local_cluster_default="${tmp_dir}/local-cluster-default.yaml"
-prod_cluster_default="${tmp_dir}/prod-cluster-default.yaml"
-local_cluster_coroot="${tmp_dir}/local-cluster-coroot.yaml"
-prod_cluster_coroot="${tmp_dir}/prod-cluster-coroot.yaml"
+local_cluster="${tmp_dir}/local-cluster.yaml"
+prod_cluster="${tmp_dir}/prod-cluster.yaml"
+local_cluster_alias="${tmp_dir}/local-cluster-alias.yaml"
+prod_cluster_alias="${tmp_dir}/prod-cluster-alias.yaml"
 docker_controllers="${tmp_dir}/docker-controllers.yaml"
 docker_infrastructure="${tmp_dir}/docker-infrastructure.yaml"
 docker_apps="${tmp_dir}/docker-apps.yaml"
@@ -991,110 +882,83 @@ coroot_base="${tmp_dir}/coroot-base.yaml"
 coroot_api_expression="\${env:COROOT_API_KEY}"
 node_name_expression="\${env:K8S_NODE_NAME}"
 
-# The supported selection surface is an alternate cluster path. Existing
-# instance-owned KSail configs keep the default cluster paths until an operator
-# explicitly opts in.
-render k8s/clusters/local/ "${local_cluster_default}"
-render k8s/clusters/prod/ "${prod_cluster_default}"
-render k8s/clusters/local-coroot/ "${local_cluster_coroot}"
-render k8s/clusters/prod-coroot/ "${prod_cluster_coroot}"
+# Coroot is the default, so the default cluster paths point at the provider
+# layers that carry it. The earlier opt-in paths stay as aliases for instances
+# whose KSail config already selects them, and must render exactly the defaults.
+render k8s/clusters/local/ "${local_cluster}"
+render k8s/clusters/prod/ "${prod_cluster}"
+render k8s/clusters/local-coroot/ "${local_cluster_alias}"
+render k8s/clusters/prod-coroot/ "${prod_cluster_alias}"
 
-assert_flux_path "${local_cluster_default}" bootstrap clusters/local/bootstrap
-assert_flux_path "${local_cluster_default}" infrastructure-controllers providers/docker/infrastructure/controllers
-assert_flux_path "${local_cluster_default}" infrastructure providers/docker/infrastructure
-assert_flux_path "${local_cluster_default}" apps providers/docker/apps
-assert_flux_path "${prod_cluster_default}" bootstrap clusters/prod/bootstrap
-assert_flux_path "${prod_cluster_default}" infrastructure-controllers providers/hetzner/infrastructure/controllers
-assert_flux_path "${prod_cluster_default}" infrastructure providers/hetzner/infrastructure
-assert_flux_path "${prod_cluster_default}" apps providers/hetzner/apps
-
-assert_flux_path "${local_cluster_coroot}" bootstrap clusters/local/bootstrap
-assert_flux_path "${local_cluster_coroot}" infrastructure-controllers providers/docker/infrastructure-controllers-coroot
-assert_flux_path "${local_cluster_coroot}" infrastructure providers/docker/infrastructure-coroot
-assert_flux_path "${local_cluster_coroot}" apps providers/docker/apps-coroot
-assert_flux_path "${prod_cluster_coroot}" bootstrap clusters/prod/bootstrap
-assert_flux_path "${prod_cluster_coroot}" infrastructure-controllers providers/hetzner/infrastructure-controllers-coroot
-assert_flux_path "${prod_cluster_coroot}" infrastructure providers/hetzner/infrastructure-coroot
-assert_flux_path "${prod_cluster_coroot}" apps providers/hetzner/apps-coroot
-for rendered_path in "${local_cluster_coroot}" "${prod_cluster_coroot}"; do
+for rendered_path in "${local_cluster}" "${local_cluster_alias}"; do
+  assert_flux_path "${rendered_path}" bootstrap clusters/local/bootstrap
+  assert_flux_path "${rendered_path}" infrastructure-controllers providers/docker/infrastructure/controllers
+  assert_flux_path "${rendered_path}" infrastructure providers/docker/infrastructure
+  assert_flux_path "${rendered_path}" apps providers/docker/apps
+done
+for rendered_path in "${prod_cluster}" "${prod_cluster_alias}"; do
+  assert_flux_path "${rendered_path}" bootstrap clusters/prod/bootstrap
+  assert_flux_path "${rendered_path}" infrastructure-controllers providers/hetzner/infrastructure/controllers
+  assert_flux_path "${rendered_path}" infrastructure providers/hetzner/infrastructure
+  assert_flux_path "${rendered_path}" apps providers/hetzner/apps
+done
+for rendered_path in "${local_cluster}" "${prod_cluster}" "${local_cluster_alias}" "${prod_cluster_alias}"; do
   assert_flux_dependency "${rendered_path}" infrastructure infrastructure-controllers
   assert_flux_dependency "${rendered_path}" apps infrastructure
 done
+if ! cmp -s "${local_cluster}" "${local_cluster_alias}" || ! cmp -s "${prod_cluster}" "${prod_cluster_alias}"; then
+  echo "clusters/local-coroot and clusters/prod-coroot must render exactly what the default cluster paths render" >&2
+  exit 1
+fi
 
-# Cluster renders contain Flux pointers, so inspect the provider payloads those
-# pointers reconcile. This catches accidental activation in either layer.
-render k8s/providers/docker/infrastructure/controllers/ "${local_controllers_default}"
-render k8s/providers/docker/infrastructure/ "${local_infrastructure_default}"
-render k8s/providers/docker/apps/ "${local_apps_default}"
-render k8s/providers/hetzner/infrastructure/controllers/ "${prod_controllers_default}"
-render k8s/providers/hetzner/infrastructure/ "${prod_infrastructure_default}"
-render k8s/providers/hetzner/apps/ "${prod_apps_default}"
-for rendered_path in \
-  "${local_controllers_default}" \
-  "${local_infrastructure_default}" \
-  "${local_apps_default}" \
-  "${prod_controllers_default}" \
-  "${prod_infrastructure_default}" \
-  "${prod_apps_default}"; do
-  assert_default_off "${rendered_path}"
-done
-
-# The default provider payloads retain the complete legacy OpenCost surface.
-# Only the explicit Coroot profiles retire it.
-for rendered_path in "${local_controllers_default}" "${prod_controllers_default}"; do
-  assert_opencost_present "${rendered_path}"
-  assert_watchdog_enabled "${rendered_path}"
-done
-for rendered_path in "${local_infrastructure_default}" "${prod_infrastructure_default}"; do
-  assert_opencost_resources_absent "${rendered_path}"
-  assert_namespace_not_excluded_from_policy "${rendered_path}" add-security-context observability
-  assert_namespace_not_excluded_from_policy "${rendered_path}" validate-host-restrictions observability
-  assert_namespace_not_excluded_from_policy "${rendered_path}" validate-pod-security observability
-  assert_security_exception_namespace_count "${rendered_path}" infrastructure-privileged observability 0
-  assert_security_exception_namespace_count "${rendered_path}" controller-rbac observability 0
-  assert_security_exception_namespace_count "${rendered_path}" service-account-tokens observability 0
-  assert_heartbeat_policy_exclusion_absent "${rendered_path}"
-done
-# No default app consumes OpenCost. The demo apps prove each absence check
-# examined a real apps render rather than an empty one.
-for rendered_path in "${local_apps_default}" "${prod_apps_default}"; do
-  assert_resource_count "${rendered_path}" HelmRelease homepage homepage 1
-  assert_resource_count "${rendered_path}" HelmRelease whoami whoami 1
-  assert_opencost_absent "${rendered_path}"
-done
-
-render k8s/providers/docker/infrastructure-controllers-coroot/ "${docker_controllers}"
-render k8s/providers/docker/infrastructure-coroot/ "${docker_infrastructure}"
-render k8s/providers/docker/apps-coroot/ "${docker_apps}"
-render k8s/providers/hetzner/infrastructure-controllers-coroot/ "${hetzner_controllers}"
-render k8s/providers/hetzner/infrastructure-coroot/ "${hetzner_infrastructure}"
-render k8s/providers/hetzner/apps-coroot/ "${hetzner_apps}"
-render k8s/bases/infrastructure/coroot/ "${coroot_base}"
-
-# The default profiles retain the complete legacy Loki + Alloy logging path.
-# Coroot profiles retire that coupled stack: Coroot handles workload logs, and
-# the production profile's audit-log-forwarder handles Talos audit logs.
-for rendered_path in "${local_controllers_default}" "${prod_controllers_default}"; do
-  assert_resource_count "${rendered_path}" HelmRelease monitoring alloy-audit 1
-  assert_resource_count "${rendered_path}" HelmRelease monitoring alloy 1
-  assert_resource_count "${rendered_path}" HelmRelease monitoring loki 1
-  assert_resource_count "${rendered_path}" HelmRepository monitoring grafana 1
-  if [[ "$(loki_datasource_count "${rendered_path}")" != "1" ]]; then
-    echo "default profile must retain the Grafana Loki datasource" >&2
+# The retired stacks and the opt-in layers that used to remove them must not
+# come back as sources: a leftover directory is one include away from rendering.
+for retired_path in \
+  k8s/bases/infrastructure/controllers/loki \
+  k8s/bases/infrastructure/controllers/alloy \
+  k8s/bases/infrastructure/controllers/opencost \
+  k8s/providers/hetzner/infrastructure/controllers/loki \
+  k8s/components/observability-coroot \
+  k8s/providers/docker/infrastructure-controllers-coroot \
+  k8s/providers/docker/infrastructure-coroot \
+  k8s/providers/docker/apps-coroot \
+  k8s/providers/hetzner/infrastructure-controllers-coroot \
+  k8s/providers/hetzner/infrastructure-coroot \
+  k8s/providers/hetzner/apps-coroot; do
+  if [[ -e "${repo_root}/${retired_path}" ]]; then
+    echo "retired observability source must stay deleted: ${retired_path}" >&2
     exit 1
   fi
 done
+
+# Cluster renders contain Flux pointers, so inspect the provider payloads those
+# pointers reconcile.
+render k8s/providers/docker/infrastructure/controllers/ "${docker_controllers}"
+render k8s/providers/docker/infrastructure/ "${docker_infrastructure}"
+render k8s/providers/docker/apps/ "${docker_apps}"
+render k8s/providers/hetzner/infrastructure/controllers/ "${hetzner_controllers}"
+render k8s/providers/hetzner/infrastructure/ "${hetzner_infrastructure}"
+render k8s/providers/hetzner/apps/ "${hetzner_apps}"
+render k8s/bases/infrastructure/coroot/ "${coroot_base}"
+
+# Coroot handles workload logs and the production audit-log-forwarder handles
+# Talos audit logs, so the coupled Loki + Alloy path and OpenCost are gone.
 for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_resource_count "${rendered_path}" HelmRelease monitoring alloy-audit 0
   assert_resource_count "${rendered_path}" HelmRelease monitoring alloy 0
   assert_resource_count "${rendered_path}" HelmRelease monitoring loki 0
   assert_resource_count "${rendered_path}" HelmRepository monitoring grafana 0
   if [[ "$(loki_datasource_count "${rendered_path}")" != "0" ]]; then
-    echo "Coroot profile must remove the dead Grafana Loki datasource" >&2
+    echo "the Grafana Loki datasource must stay removed with Loki" >&2
     exit 1
   fi
+done
+# A leftover Loki address can sit in any payload (a Coroot, homepage or
+# datasource setting), so every render is searched, not only the controllers.
+for rendered_path in "${docker_controllers}" "${docker_infrastructure}" "${docker_apps}" \
+  "${hetzner_controllers}" "${hetzner_infrastructure}" "${hetzner_apps}" "${coroot_base}"; do
   if [[ "$(loki_service_reference_count "${rendered_path}")" != "0" ]]; then
-    echo "Coroot profile must not retain a reference to the retired Loki service" >&2
+    echo "no render may retain a reference to the retired Loki service: ${rendered_path}" >&2
     exit 1
   fi
 done
@@ -1108,14 +972,11 @@ assert_flux_notification_contract "${hetzner_controllers}"
 assert_heartbeat_staged_after_policy_exclusion "${docker_controllers}" "${docker_apps}"
 assert_heartbeat_staged_after_policy_exclusion "${hetzner_controllers}" "${hetzner_apps}"
 
-assert_auth_proxy_with_coroot "${local_controllers_default}" "${docker_controllers}"
-assert_auth_proxy_with_coroot "${prod_controllers_default}" "${hetzner_controllers}"
+assert_auth_proxy_with_coroot "${docker_controllers}"
+assert_auth_proxy_with_coroot "${hetzner_controllers}"
 
-# Coroot is the observability UI in the Coroot profiles, so the Grafana, Prometheus and
-# Alertmanager UIs, their routes, SSO redirect and OIDC secret are retired there. The
-# default profiles keep every one of them.
-assert_kps_ui_surfaces "${local_controllers_default}" "${local_infrastructure_default}" 1 true
-assert_kps_ui_surfaces "${prod_controllers_default}" "${prod_infrastructure_default}" 1 true
+# Coroot is the observability UI, so the Grafana, Prometheus and Alertmanager
+# UIs, their routes, SSO redirect and OIDC secret are not published.
 assert_kps_ui_surfaces "${docker_controllers}" "${docker_infrastructure}" 0 false
 assert_kps_ui_surfaces "${hetzner_controllers}" "${hetzner_infrastructure}" 0 false
 
@@ -1133,6 +994,12 @@ for rendered_path in "${docker_controllers}" "${hetzner_controllers}"; do
   assert_watchdog_enabled "${rendered_path}"
 done
 
+# The demo apps prove each apps check examined a real render rather than an
+# empty one.
+for rendered_path in "${docker_apps}" "${hetzner_apps}"; do
+  assert_resource_count "${rendered_path}" HelmRelease homepage homepage 1
+  assert_resource_count "${rendered_path}" HelmRelease whoami whoami 1
+done
 assert_coroot_heartbeat_contract "${docker_apps}" "${docker_controllers}"
 assert_coroot_heartbeat_substitution "${docker_apps}"
 assert_coroot_heartbeat_contract "${hetzner_apps}" "${hetzner_controllers}"
@@ -1169,7 +1036,9 @@ assert_legacy_flux_alert_deduplicated "${hetzner_infrastructure}"
 assert_opencost_absent "${hetzner_infrastructure}"
 assert_opencost_absent "${docker_apps}"
 assert_opencost_absent "${hetzner_apps}"
-assert_coroot_admin_role "${coroot_base}" 0
+# The Admin role ships with the Coroot resource itself: the route, grant and
+# network boundary that put oauth2-proxy in front of it are always rendered.
+assert_coroot_admin_role "${coroot_base}" 1
 assert_coroot_admin_role "${docker_infrastructure}" 1
 assert_coroot_admin_role "${hetzner_infrastructure}" 1
 
@@ -1204,7 +1073,7 @@ hetzner_webhook_contract="$(
 )"
 
 if [[ "${docker_notification_integrations}" != "0" || "${base_notification_integrations}" != "0" ]]; then
-  echo "Coroot webhook notifications must remain absent from the reusable and local profiles" >&2
+  echo "Coroot webhook notifications must remain absent from the reusable base and the local layers" >&2
   exit 1
 fi
 if [[ "${hetzner_notification_integrations}" != "1" || "${hetzner_webhook_contract}" != "1" ]]; then
@@ -1292,7 +1161,7 @@ for documented_value in \
   clusters/prod-coroot \
   spec.workload.kustomizationFile; do
   if ! grep -Fq "${documented_value}" "${templating_guide}"; then
-    echo "templating guide does not document Coroot opt-in value ${documented_value}" >&2
+    echo "templating guide does not document the Coroot path value ${documented_value}" >&2
     exit 1
   fi
 done
@@ -1305,9 +1174,9 @@ for config_path in ksail.yaml ksail.prod.yaml; do
   fi
 done
 for documented_boundary in \
-  "This profile is transitional." \
-  "It enables Coroot, removes OpenCost," \
-  "retires the legacy Loki and Alloy log path" \
+  "The stack is transitional in one respect." \
+  "It runs Coroot, has no OpenCost," \
+  "has no Loki or Alloy log path" \
   "stages one hardened \`cluster-heartbeat\` CronJob" \
   "uses a separate optional \`CLUSTER_HEARTBEAT_URL\` secret" \
   "Never point both inputs at the same monitor" \
@@ -1321,11 +1190,11 @@ for documented_boundary in \
   "keep Watchdog unchanged" \
   "preserves a dead-man signal" \
   "keeps kube-prometheus-stack" \
-  "it removes the Grafana, Prometheus and Alertmanager" \
+  "the Grafana, Prometheus and Alertmanager" \
   "Prometheus and Alertmanager keep running for alerting" \
   "Cost allocation is therefore unavailable" \
   "reuses the same \`alertmanager_webhook_url\`" \
-  "production Coroot profile to report failed" \
+  "production to report failed reconciliations" \
   "reuses the existing encrypted webhook" \
   "incident and resolution notifications" \
   "permits only \`hooks.slack.com:443\`" \
@@ -1339,7 +1208,11 @@ for documented_boundary in \
   "https://observability.<your-domain>" \
   "Dex-backed oauth2-proxy" \
   "no direct Gateway route to the Coroot service" \
-  "removes the route and the profile-only Admin role together"; do
+  "the Admin role only behind that complete" \
+  "render exactly what the default paths render" \
+  "migrates with its next template sync" \
+  "Flux removes the Loki, Alloy and OpenCost releases" \
+  "Delete that leftover PersistentVolumeClaim"; do
   if ! grep -Fq "${documented_boundary}" "${templating_guide}"; then
     echo "templating guide does not retain Coroot boundary: ${documented_boundary}" >&2
     exit 1
@@ -1372,7 +1245,7 @@ for documented_heartbeat_boundary in \
   "The controller layer applies them before it waits" \
   "\`FluxHelmReleaseNotReady\`" \
   "watch every \`Kustomization\`" \
-  "default and local Coroot profiles render no Slack" \
+  "Local / Docker renders no Slack" \
   "\`kube-prometheus-stack\` remains transitional for Watchdog" \
   "Alertmanager web UIs are" \
   "port-forward svc/kube-prometheus-stack-alertmanager 9093"; do
@@ -1411,8 +1284,8 @@ if grep -R -E -n '(devantler|homelab|hooks\.slack\.com|hcloud|alertmanager_webho
   "${repo_root}/k8s/bases/infrastructure/coroot" \
   "${repo_root}/k8s/bases/apps/cluster-heartbeat" \
   "${repo_root}/k8s/bases/infrastructure/audit-log-forwarder"; then
-  echo "Coroot profile manifests contain an instance-specific value" >&2
+  echo "Coroot manifests contain an instance-specific value" >&2
   exit 1
 fi
 
-echo "Observability option validation passed (default-off + selectable Coroot provider renders)."
+echo "Observability validation passed (Coroot by default on both providers; the earlier opt-in paths alias the defaults)."

@@ -3,6 +3,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../../bases/infrastructure/
+  - ../../../bases/infrastructure/audit-log-forwarder/
   - cluster-issuers/
   - vault-seed/
 patches:
@@ -10,4 +11,17 @@ patches:
     target:
       kind: Gateway
       name: platform
-
+  - path: patches/add-webhook-alerting.yaml
+    target:
+      group: coroot.com
+      version: v1
+      kind: Coroot
+      name: coroot
+      namespace: observability
+  - path: patches/retain-helm-release-alert.yaml
+    target:
+      group: monitoring.coreos.com
+      version: v1
+      kind: PrometheusRule
+      name: platform-critical
+      namespace: monitoring

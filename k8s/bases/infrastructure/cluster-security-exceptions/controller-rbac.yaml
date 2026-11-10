@@ -2,8 +2,8 @@
 # Exempt controllers and middleware that legitimately need broad RBAC.
 # Infrastructure controllers (Flux, Kyverno, cert-manager, CNPG, Velero,
 # KEDA, monitoring, KubeVirt, CDI, Longhorn) and platform middleware
-# (homepage service discovery, dex identity, oauth2-proxy auth, opencost
-# cost monitoring, reloader config watcher) all require cluster-wide read
+# (homepage service discovery, dex identity, oauth2-proxy auth, Coroot
+# observability, reloader config watcher) all require cluster-wide read
 # or read/write access to function correctly.
 apiVersion: kubescape.io/v1beta1
 kind: ClusterSecurityException
@@ -15,7 +15,7 @@ spec:
     to manage their target resources cluster-wide. This includes GitOps
     (Flux), policy engines (Kyverno), certificate managers (cert-manager),
     database operators (CNPG), backup controllers (Velero), autoscalers
-    (KEDA), monitoring (Prometheus/opencost), virtualisation (KubeVirt,
+    (KEDA), monitoring (Prometheus/Coroot), virtualisation (KubeVirt,
     CDI), storage (Longhorn), service discovery (homepage), identity
     (dex), auth proxies (oauth2-proxy), and config watchers (reloader).
   posture:
@@ -60,7 +60,7 @@ spec:
             - external-dns
             - oauth2-proxy
             - kubelet-serving-cert-approver
-            - opencost
+            - observability
             - reloader
             - dex
             - homepage

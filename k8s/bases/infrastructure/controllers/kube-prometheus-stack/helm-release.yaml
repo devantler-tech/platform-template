@@ -42,9 +42,11 @@ spec:
     # the JMESPath literal in role_attribute_path. auto_login +
     # disable_login_form send users straight to Dex with no Grafana login
     # form (break-glass: https://grafana.${domain}/login?disableAutoLogin=true).
-    # Loki is wired in as an additional datasource below.
+    # Grafana is switched off: Coroot is the observability UI, and no route, sign-in
+    # secret or Dex callback is published for it. The settings below are kept only
+    # until kube-prometheus-stack itself is retired.
     grafana:
-      enabled: true
+      enabled: false
       grafana.ini:
         server:
           root_url: https://grafana.${domain}
@@ -102,14 +104,6 @@ spec:
           memory: 128Mi
         limits:
           memory: 256Mi
-      # Loki log datasource (Loki shares the monitoring namespace).
-      additionalDataSources:
-        - name: Loki
-          type: loki
-          access: proxy
-          url: http://loki.monitoring.svc.cluster.local:3100
-          jsonData:
-            maxLines: 1000
 
     # We don't host an external Prometheus and don't expose this one.
     prometheus:

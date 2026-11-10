@@ -18,7 +18,7 @@ It is the reusable, automatically bootstrapped form of
   Cloud in production.
 - **The services an app needs, already running** — Cilium networking and Gateway API, cert-manager
   certificates, OpenBao secrets, Dex single sign-on, Kyverno policies, Longhorn storage,
-  CloudNativePG databases, Prometheus, Grafana and Loki monitoring, and Velero backups.
+  CloudNativePG databases, Coroot observability with Prometheus alerting, and Velero backups.
 - **Changes tested before they deploy** — CI validates every pull request and system-tests it on
   a throwaway cluster before the merge queue deploys it to production.
 - **Your apps from their own repositories** — run an application as a *tenant* that deploys from

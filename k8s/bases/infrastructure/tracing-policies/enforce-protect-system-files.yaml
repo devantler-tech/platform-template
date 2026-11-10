@@ -17,7 +17,7 @@
 # /var/log + /dev/log are intentionally excluded (legitimate log writes).
 #
 # Rollout: add the label to one workload's pods, watch Kubescape runtime
-# detection (and Tetragon's own events in Loki) to confirm no legitimate writes
+# detection (and Tetragon's own events in Coroot) to confirm no legitimate writes
 # would be killed, then widen.
 #
 # Action choice: `Sigkill` is a post-hook signal and needs no special kernel

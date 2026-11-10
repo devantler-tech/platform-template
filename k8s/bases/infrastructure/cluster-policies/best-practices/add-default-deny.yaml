@@ -34,6 +34,7 @@ spec:
                 - kube-system
                 - kube-public
                 - kube-node-lease
+                - observability
       generate:
         generateExisting: true
         apiVersion: cilium.io/v2
@@ -67,6 +68,7 @@ spec:
                 - kube-system
                 - kube-public
                 - kube-node-lease
+                - observability
       generate:
         generateExisting: true
         apiVersion: cilium.io/v2
@@ -77,6 +79,75 @@ spec:
         data:
           spec:
             endpointSelector: {}
+            egress:
+              - toEndpoints:
+                  - matchLabels:
+                      k8s:io.kubernetes.pod.namespace: kube-system
+                      k8s-app: kube-dns
+                toPorts:
+                  - ports:
+                      - port: "53"
+                        protocol: UDP
+                      - port: "53"
+                        protocol: TCP
+    # The observability namespace keeps its own default-deny and DNS rules: they leave the
+    # purpose-labelled cluster heartbeat out, so its dedicated policy is the only one it gets.
+    - name: generate-default-deny-observability
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              names:
+                - observability
+      generate:
+        generateExisting: true
+        apiVersion: cilium.io/v2
+        kind: CiliumNetworkPolicy
+        name: default-deny
+        synchronize: true
+        namespace: "{{request.object.metadata.name}}"
+        data:
+          spec:
+            endpointSelector:
+              matchExpressions:
+                - key: platform-heartbeat
+                  operator: NotIn
+                  values:
+                    - "true"
+            # The same composable floor as the namespace-wide rule above: one empty
+            # allow rule per direction names no peer or port, so it allows nothing.
+            # A deny rule here would override allow-coroot and allow-dns.
+            ingress:
+              - {}
+            egress:
+              - {}
+            enableDefaultDeny:
+              ingress: true
+              egress: true
+    - name: generate-allow-dns-observability
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              names:
+                - observability
+      generate:
+        generateExisting: true
+        apiVersion: cilium.io/v2
+        kind: CiliumNetworkPolicy
+        name: allow-dns
+        synchronize: true
+        namespace: "{{request.object.metadata.name}}"
+        data:
+          spec:
+            endpointSelector:
+              matchExpressions:
+                - key: platform-heartbeat
+                  operator: NotIn
+                  values:
+                    - "true"
             egress:
               - toEndpoints:
                   - matchLabels:

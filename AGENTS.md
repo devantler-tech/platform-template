@@ -142,9 +142,9 @@ kubectl kustomize k8s/clusters/prod/
 kubectl apply --dry-run=client -f <file>   # single-manifest YAML/schema check
 ```
 
-Coroot resources are intentionally absent from the default cluster paths. The
-selectable `clusters/local-coroot` and `clusters/prod-coroot` paths opt in through
-the instance-owned KSail config. Validate the unchanged defaults and both profiles
+Coroot is the observability stack on the default cluster paths. The earlier
+`clusters/local-coroot` and `clusters/prod-coroot` opt-in paths remain as aliases that
+render exactly the defaults. Validate the defaults, the aliases and the stack's contract
 with:
 
 ```bash
@@ -260,10 +260,10 @@ resources change. Changes to the default-off
 recommended-label profiles also run
 `./scripts/validate-recommended-labels-option.sh`. Without KSail, both overlays MUST build with `kubectl
 kustomize k8s/clusters/local/` and `kubectl kustomize k8s/clusters/prod/`. Per file:
-`kubectl apply --dry-run=client -f <file>`. Changes to the selectable Coroot or
-audit-log-forwarder profiles also run
-`./scripts/validate-observability-option.sh` to cover its default-off and opt-in
-layers. **Never run a cluster** (no `ksail cluster create`/`update`/
+`kubectl apply --dry-run=client -f <file>`. Changes to Coroot, the
+audit-log-forwarder or the cluster heartbeat also run
+`./scripts/validate-observability-option.sh` to cover the default layers and their
+aliases. **Never run a cluster** (no `ksail cluster create`/`update`/
 `delete`, no mutating `~/.kube/config`). **Protected — never modify**
 in this repo: `*.enc.yaml`, `.sops.yaml`. Manifest layering (which change belongs
 in a base and which in an overlay patch) and Flux dependency order are stated

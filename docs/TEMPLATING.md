@@ -42,21 +42,22 @@ Everything else (distribution, provider, CNI, GitOps engine, timeouts,
 `sourceDirectory`, tag) should match across all Hetzner-backed instances. The
 autoscaler is documented in [`node-autoscaling.md`](node-autoscaling.md).
 
-### Select the transitional Coroot profile
+### Observability: Coroot is the default
 
-The default paths keep the existing observability stack. To evaluate Coroot,
-change only `spec.workload.kustomizationFile` in the KSail config for the cluster:
+Both default cluster paths run Coroot. A new instance selects nothing:
 
-| Cluster | Default | Coroot profile |
+| Cluster | Path | Earlier opt-in path |
 |---|---|---|
 | local / Docker | `clusters/local` | `clusters/local-coroot` |
 | prod / Hetzner | `clusters/prod` | `clusters/prod-coroot` |
 
-The KSail configs belong to the instance and are excluded from template sync, so
-the choice persists when shared platform files update. To return to the default,
-restore `clusters/local` or `clusters/prod`.
-
-After selecting or reverting the profile, publish the payload, update the
+Coroot used to be an opt-in profile selected through
+`spec.workload.kustomizationFile` in the KSail config. The two `-coroot` paths
+remain as aliases that render exactly what the default paths render, so an
+instance that opted in keeps working after a template sync. The KSail configs
+belong to the instance and are excluded from template sync, so nothing moves
+such an instance; point it back at `clusters/local` or `clusters/prod` when
+convenient. After changing the path, publish the payload, update the
 FluxInstance sync path, and then ask Flux to reconcile it. Neither `cluster
 update` alone nor `workload push` plus `workload reconcile` alone completes all
 three steps:
@@ -73,24 +74,31 @@ ksail --config ksail.prod.yaml cluster update
 ksail --config ksail.prod.yaml workload reconcile
 ```
 
-This profile is transitional. It enables Coroot, removes OpenCost,
-retires the legacy Loki and Alloy log path, and keeps kube-prometheus-stack
-until the metrics and alerting migration is proven separately. Cost allocation is therefore unavailable in this
-profile; it does not connect OpenCost to Coroot Prometheus. Coroot is the only
-observability UI in this profile: it removes the Grafana, Prometheus and Alertmanager
-web UIs together with their routes, SSO entries and Grafana sign-in secret, while
+**An instance on the previous default migrates with its next template sync.**
+That instance ran Loki, Alloy and OpenCost. When the sync merges and Flux
+reconciles it, Flux removes the Loki, Alloy and OpenCost releases and the
+`opencost` namespace, and installs Coroot. No KSail config changes. Two things
+do not carry over: logs held in Loki and cost data held in OpenCost are not
+migrated, and Loki's log volume is a StatefulSet claim that an uninstall leaves
+behind. Delete that leftover PersistentVolumeClaim in the `monitoring` namespace
+once the logs are no longer needed.
+
+The stack is transitional in one respect. It runs Coroot, has no OpenCost,
+has no Loki or Alloy log path, and keeps kube-prometheus-stack
+until the metrics and alerting migration is proven separately. Cost allocation is therefore unavailable.
+Coroot is the only observability UI: the Grafana, Prometheus and Alertmanager
+web UIs, their routes, SSO entries and Grafana sign-in secret are not published, while
 Prometheus and Alertmanager keep running for alerting. Docker runs Coroot
 without the audit log forwarder, while Hetzner includes the forwarder for host
 audit logs. Because Coroot's eBPF agent and the production audit collector need
-host access, the profile also exempts the `observability` namespace from the
-Kyverno host and restricted-pod policies; the default paths keep those policies
-enforced for that namespace.
+host access, the `observability` namespace is exempt from the
+Kyverno host and restricted-pod policies.
 
-The production / Hetzner Coroot profile reuses the existing encrypted webhook
+Production / Hetzner reuses the existing encrypted webhook
 variable for Coroot incident and resolution notifications. Its matching provider
 policy permits only `hooks.slack.com:443`, so keep this value a Slack incoming-webhook URL.
-Flux notification-controller reuses the same `alertmanager_webhook_url` only in
-the production Coroot profile to report failed reconciliations. The
+Flux notification-controller reuses the same `alertmanager_webhook_url` in
+production to report failed reconciliations. The
 controller layer applies both Flux alerts before it waits for every controller
 to become ready: one forwards all `Kustomization` error events, while a
 narrow info-severity path for dependency waits covers a prerequisite that is
@@ -99,7 +107,7 @@ Kustomization failure reaches Slack once. There
 is no fourth secret or polling workload to configure.
 Per-alert notifications remain visible only in the Coroot UI; this avoids sending
 every noisy alert to the shared webhook. Local / Docker Coroot stays notification-free.
-The profile also stages one hardened `cluster-heartbeat` CronJob for the cluster
+The apps layer also stages one hardened `cluster-heartbeat` CronJob for the cluster
 dead-man signal. It uses a separate optional `CLUSTER_HEARTBEAT_URL` secret so
 the existing Alertmanager Watchdog check keeps proving the Prometheus-to-Alertmanager
 pipeline. Never point both inputs at the same monitor. The CronJob runs at
@@ -112,25 +120,23 @@ The substituted bearer URL lives in a Kubernetes Secret and reaches the containe
 through a Secret-backed environment variable. A shell builtin feeds it to curl as
 stdin configuration, so neither the PodSpec nor curl's runtime argument vector
 contains the credential.
-The Coroot infrastructure overlay alone narrows the generated namespace policies
-around the CronJob's purpose-specific label, so default profiles retain their
-global selectors. The dependent apps layer stages the heartbeat only after that
+The infrastructure layer narrows the generated namespace policies
+around the CronJob's purpose-specific label. The dependent apps layer stages the heartbeat only after that
 infrastructure reconciliation is ready, preventing an existing namespace-wide
 deny policy from blocking the new workload during an upgrade. The invalid URL
-fallback keeps local and unconfigured instances inert. Both default and Coroot
-profiles keep Watchdog unchanged on the distinct Alertmanager pipeline monitor,
+fallback keeps local and unconfigured instances inert. Both checks
+keep Watchdog unchanged on the distinct Alertmanager pipeline monitor,
 which preserves a dead-man signal until the apps layer starts the direct check.
-Flux notification-controller now owns reconciliation errors in the production
-Coroot profile, including dependency waits.
+Flux notification-controller now owns reconciliation errors in
+production, including dependency waits.
 Kube-prometheus-stack keeps owning its remaining metric-backed alert rules and
 the Watchdog pipeline until those migrations are delivered separately.
 
 Open the Coroot UI at `https://observability.<your-domain>`. Community Edition
-does not provide native OIDC, so this profile sends every UI request through the
+does not provide native OIDC, so every UI request goes through the
 existing Dex-backed oauth2-proxy before the in-cluster auth proxy forwards it to
-Coroot. The profile grants Coroot's anonymous Admin role only behind that complete
-SSO path; there is no direct Gateway route to the Coroot service. Returning to the
-default cluster path removes the route and the profile-only Admin role together.
+Coroot. Coroot grants its anonymous user the Admin role only behind that complete
+SSO path; there is no direct Gateway route to the Coroot service.
 
 ### Add recommended workload labels at admission
 
@@ -155,8 +161,7 @@ the selection persists across shared updates. To disable the policy, restore
 recommended-label profile, run the same three-step sequence shown above:
 `workload push` → `cluster update` → `workload reconcile`. It publishes the
 payload, updates the FluxInstance sync path, and reconciles it. The
-recommended-label profiles use the default observability paths; they do not also
-select the transitional Coroot profile.
+recommended-label profiles build on the default paths, so they run Coroot too.
 
 ### 2. Talos machine-config directories
 
@@ -252,9 +257,8 @@ See [`.github/workflows/`](../.github/workflows) for the exact names in use.
   and the rest of the controller set.
 - [`k8s/bases/apps/`](../k8s/bases/apps) — the demo applications (homepage, whoami).
 - [`k8s/components/`](../k8s/components) — shared transformations: the HelmRelease
-  retry defaults and drift detection every HelmRelease-owning kustomization lists, and opt-in
-  profile transformations such as removing OpenCost across controller,
-  infrastructure, and app layers.
+  retry defaults and drift detection every HelmRelease-owning kustomization lists, and the
+  shared policy set the opt-in profiles add.
 - [`k8s/providers/{docker,hetzner}/`](../k8s/providers) — provider-specific assembly
   of the bases.
 
