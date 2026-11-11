@@ -432,7 +432,7 @@ jobs:
       actions: read
     steps:
       - name: 📊 Evaluate job results
-        uses: devantler-tech/.github/actions/aggregate-job-checks@3f0791b9b2f435133d13980e918ac8f2f361c519 # v20.1.4
+        uses: devantler-tech/.github/actions/aggregate-job-checks@933b53600c15fe7a67189756307cb19e23090c99 # v21.0.1
         with:
           check-workflow-startup: "true"
           job-results: >-
