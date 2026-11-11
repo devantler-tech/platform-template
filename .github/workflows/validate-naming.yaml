@@ -36,7 +36,7 @@ jobs:
 
       - name: 🏷️ Validate naming conventions
         id: naming
-        uses: devantler-tech/.github/actions/validate-naming@3f0791b9b2f435133d13980e918ac8f2f361c519 # v20.1.4
+        uses: devantler-tech/.github/actions/validate-naming@933b53600c15fe7a67189756307cb19e23090c99 # v21.0.1
         with:
           config-file: ${{ hashFiles('.github/manifest-naming.local.yaml') != '' && '.github/manifest-naming.local.yaml' || '.github/manifest-naming.yaml' }}
 
