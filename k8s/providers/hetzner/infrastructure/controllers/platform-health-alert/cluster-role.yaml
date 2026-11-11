@@ -1,0 +1,16 @@
+---
+# Read-only: the check only lists the objects whose status it judges.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform-health-alert
+rules:
+  - apiGroups: ["velero.io"]
+    resources: ["schedules", "backups"]
+    verbs: ["list"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters", "backups"]
+    verbs: ["list"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["list"]

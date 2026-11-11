@@ -1,0 +1,228 @@
+---
+# Posts to Slack when a backup, a database or a certificate needs attention:
+#
+# - a Velero schedule whose latest backup failed, or with no completed backup
+#   within BACKUP_MAX_AGE_SECONDS;
+# - a CloudNativePG cluster with no completed backup within
+#   BACKUP_MAX_AGE_SECONDS, fewer ready instances than requested, or a
+#   configured WAL archive that is not working, each past GRACE_SECONDS;
+# - a cert-manager Certificate that expires within CERT_WARN_SECONDS.
+#
+# A kind whose API is not installed (HTTP 404) is skipped. Every other API or
+# delivery failure fails the Job, because nothing else notices a check that
+# silently sends nothing. A problem that persists is reported again on every
+# run until it is fixed; that is deliberate.
+#
+# The script uses its own shell variables, so Flux substitution is disabled for
+# this object. The webhook comes from the Secret next to it, mounted as a file
+# and passed to curl as stdin configuration, so it is in neither the PodSpec
+# nor an argument vector. scripts/tests/test-platform-health-alert.sh runs this
+# script against recorded API responses.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: platform-health-alert
+  namespace: observability
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  schedule: "41 */6 * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app: platform-health-alert
+        spec:
+          restartPolicy: Never
+          serviceAccountName: platform-health-alert
+          # The check lists objects through the Kubernetes API, so it needs its
+          # token; its ClusterRole only lists the kinds it judges.
+          automountServiceAccountToken: true
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            # Makes the mounted webhook file group-readable by this user.
+            fsGroup: 65532
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: check
+              image: docker.io/badouralix/curl-jq:latest@sha256:1e7c0284e24572ace7170df9fc91f15fd3b79ebf056d4dde17244d5d74bbfabc
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: BACKUP_MAX_AGE_SECONDS
+                  value: "93600" # 26 hours: one daily backup plus slack.
+                - name: CERT_WARN_SECONDS
+                  value: "1209600" # 14 days.
+                - name: GRACE_SECONDS
+                  value: "900"
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  API=${API:-https://kubernetes.default.svc}
+                  SA=${SA_DIR:-/var/run/secrets/kubernetes.io/serviceaccount}
+                  WORK=${WORK_DIR:-/tmp}
+                  NOW=${NOW:-$(date -u +%s)}
+                  WEBHOOK_URL=$(cat "${WEBHOOK_FILE:-/etc/platform-health-alert/url}")
+
+                  # The URL becomes a curl config line, where a newline would
+                  # start another directive; and the token in its path must not
+                  # travel over plain http.
+                  if [ "$(printf '%s' "$WEBHOOK_URL" | tr -d '[:cntrl:]')" != "$WEBHOOK_URL" ]; then
+                    echo "ERROR: webhook URL contains control characters" >&2
+                    exit 1
+                  fi
+                  case "$WEBHOOK_URL" in
+                    https://*) ;;
+                    *) echo "ERROR: webhook URL must use https://" >&2; exit 1 ;;
+                  esac
+
+                  # list PATH NAME: writes the list to $WORK/NAME.json. Returns 1
+                  # when the kind is not installed; exits on any other failure, so
+                  # a broken read never looks like a healthy cluster.
+                  list() {
+                    code=$(curl -sS -o "$WORK/$2.json" -w '%{http_code}' \
+                      --cacert "$SA/ca.crt" \
+                      -H "Authorization: Bearer $(cat "$SA/token")" \
+                      "$API$1") || code="curl-failed"
+                    case "$code" in
+                      200) ;;
+                      404) echo "$2: API not installed; skipped."; return 1 ;;
+                      *) echo "ERROR: listing $1 returned $code" >&2; exit 1 ;;
+                    esac
+                    if ! jq -e '(.items | type) == "array"' "$WORK/$2.json" >/dev/null; then
+                      echo "ERROR: unexpected response shape listing $1" >&2
+                      exit 1
+                    fi
+                    echo "$2: $(jq '.items | length' "$WORK/$2.json") listed."
+                  }
+
+                  DEFS='def ts: if . == null then null else (sub("\\.[0-9]+Z$"; "Z") | fromdate) end;
+                        def ref: "`\(.metadata.namespace)/\(.metadata.name)`";'
+                  : >"$WORK/findings"
+
+                  if list /apis/velero.io/v1/schedules velero-schedules; then
+                    list /apis/velero.io/v1/backups velero-backups
+                    jq -r --argjson now "$NOW" --argjson max "$BACKUP_MAX_AGE_SECONDS" \
+                      --slurpfile backups "$WORK/velero-backups.json" "$DEFS"'
+                      .items[] | . as $s
+                      | [$backups[0].items[]
+                         | select(.metadata.namespace == $s.metadata.namespace
+                                  and .metadata.labels["velero.io/schedule-name"] == $s.metadata.name)] as $mine
+                      | ($mine | sort_by(.metadata.creationTimestamp) | last) as $latest
+                      | ([$mine[] | select(.status.phase == "Completed") | .status.completionTimestamp | ts] | max) as $done
+                      | ($done // ($s.metadata.creationTimestamp | ts)) as $since
+                      | (if $latest != null and (($latest.status.phase // "") | IN("Failed", "PartiallyFailed", "FailedValidation"))
+                         then "• Velero schedule \($s | ref): latest backup `\($latest.metadata.name)` is \($latest.status.phase)"
+                         else empty end),
+                        (if $since <= $now - $max
+                         then "• Velero schedule \($s | ref): no completed backup since \($since | todate)"
+                         else empty end)
+                    ' "$WORK/velero-schedules.json" >>"$WORK/findings"
+                  fi
+
+                  if list /apis/postgresql.cnpg.io/v1/clusters cnpg-clusters; then
+                    list /apis/postgresql.cnpg.io/v1/backups cnpg-backups
+                    jq -r --argjson now "$NOW" --argjson max "$BACKUP_MAX_AGE_SECONDS" \
+                      --argjson grace "$GRACE_SECONDS" \
+                      --slurpfile backups "$WORK/cnpg-backups.json" "$DEFS"'
+                      .items[] | . as $c
+                      | ($c.metadata.creationTimestamp | ts) as $created
+                      | (($c.status.conditions // []) | map(select(.type == "Ready")) | first) as $ready
+                      | (($c.status.conditions // []) | map(select(.type == "ContinuousArchiving")) | first) as $archive
+                      | ([($c.spec.plugins // [])[] | select(.enabled != false and .isWALArchiver == true)] | length > 0
+                         or $c.spec.backup.barmanObjectStore != null) as $archiveConfigured
+                      | ([$backups[0].items[]
+                          | select(.metadata.namespace == $c.metadata.namespace
+                                   and .spec.cluster.name == $c.metadata.name
+                                   and .status.phase == "completed")
+                          | .status.stoppedAt | ts] | max) as $done
+                      | ($done // $created) as $since
+                      | (($ready.lastTransitionTime | ts) // $created) as $readySince
+                      | (($archive.lastTransitionTime | ts) // $created) as $archiveSince
+                      | (if $since <= $now - $max
+                         then "• CloudNativePG cluster \($c | ref): no completed backup since \($since | todate)"
+                         else empty end),
+                        (if (($c.status.readyInstances // 0) < ($c.spec.instances // 1)
+                             or ($ready.status // "Unknown") != "True")
+                            and $readySince <= $now - $grace
+                         then "• CloudNativePG cluster \($c | ref): \($c.status.readyInstances // 0)/\($c.spec.instances // 1) instances ready since \($readySince | todate)"
+                         else empty end),
+                        (if $archiveConfigured and ($archive.status // "Unknown") != "True"
+                            and $archiveSince <= $now - $grace
+                         then "• CloudNativePG cluster \($c | ref): WAL archiving is \($archive.status // "Unknown") since \($archiveSince | todate)"
+                         else empty end)
+                    ' "$WORK/cnpg-clusters.json" >>"$WORK/findings"
+                  fi
+
+                  if list /apis/cert-manager.io/v1/certificates certificates; then
+                    jq -r --argjson now "$NOW" --argjson warn "$CERT_WARN_SECONDS" "$DEFS"'
+                      .items[]
+                      | (.status.notAfter | ts) as $notAfter
+                      | select($notAfter != null and $notAfter - $now < $warn)
+                      | "• Certificate \(ref) expires \($notAfter | todate); cert-manager has not renewed it"
+                    ' "$WORK/certificates.json" >>"$WORK/findings"
+                  fi
+
+                  if [ ! -s "$WORK/findings" ]; then
+                    echo "No backup, database or certificate problem found."
+                    exit 0
+                  fi
+                  cat "$WORK/findings"
+
+                  jq -n --rawfile findings "$WORK/findings" '{text: ("*Platform health check*\n\n" + $findings + "\n_See docs/dr/alerting.md for what each line means._")}' >"$WORK/payload.json"
+
+                  # Only the reserved placeholder may skip delivery.
+                  case "$WEBHOOK_URL" in
+                    https://example.invalid/*)
+                      echo "No Slack webhook configured; alert not delivered."
+                      exit 0
+                      ;;
+                  esac
+                  printf 'url = %s\n' "$WEBHOOK_URL" |
+                    curl -sf --max-time 15 \
+                      --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \
+                      -H 'Content-Type: application/json' \
+                      --data @"$WORK/payload.json" \
+                      --config -
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65532
+                runAsGroup: 65532
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: webhook
+                  mountPath: /etc/platform-health-alert
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 5m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            # 288 is 0440 written in decimal, so YAML 1.1 and 1.2 readers agree:
+            # readable by root and the pod's fsGroup only.
+            - name: webhook
+              secret:
+                secretName: platform-health-alert-webhook
+                defaultMode: 288

@@ -144,8 +144,9 @@ deny policy from blocking the new workload during an upgrade. The invalid URL
 fallback keeps local and unconfigured instances inert.
 Flux notification-controller now owns reconciliation errors in
 production, including dependency waits.
-Some Prometheus alert rules have no replacement: certificate expiry, backup
-freshness and autoscaler failures are not alerted today.
+In production, a `platform-health-alert` CronJob reports failed or stale backups,
+degraded CloudNativePG clusters and certificates close to expiry through the same
+webhook. Cluster Autoscaler failures are left to Coroot.
 [`docs/dr/alerting.md`](dr/alerting.md) lists what is and is not alerted.
 
 Open the Coroot UI at `https://observability.<your-domain>`. Community Edition

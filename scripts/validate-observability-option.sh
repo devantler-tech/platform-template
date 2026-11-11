@@ -530,6 +530,59 @@ assert_flux_notification_contract() {
   fi
 }
 
+# Validates the production backup, database and certificate check (#423): one
+# read-only identity that can only list the kinds it judges, the shared
+# webhook input, and a CronJob wired to both.
+assert_platform_health_alert_contract() {
+  local rendered_path="$1"
+  local contract
+
+  contract="$(
+    yq eval-all -o=json '.' "${rendered_path}" |
+      jq -s '
+        def one($kind; $ns; $name): [.[] | select(type == "object" and .kind == $kind and (.metadata.namespace // "") == $ns and .metadata.name == $name)];
+        (one("ServiceAccount"; "observability"; "platform-health-alert") | length == 1) and
+        (one("ClusterRole"; ""; "platform-health-alert") | length == 1 and .[0].rules == [
+          {"apiGroups":["velero.io"],"resources":["schedules","backups"],"verbs":["list"]},
+          {"apiGroups":["postgresql.cnpg.io"],"resources":["clusters","backups"],"verbs":["list"]},
+          {"apiGroups":["cert-manager.io"],"resources":["certificates"],"verbs":["list"]}]) and
+        (one("ClusterRoleBinding"; ""; "platform-health-alert") | length == 1 and
+          .[0].roleRef == {"apiGroup":"rbac.authorization.k8s.io","kind":"ClusterRole","name":"platform-health-alert"} and
+          .[0].subjects == [{"kind":"ServiceAccount","name":"platform-health-alert","namespace":"observability"}]) and
+        (one("Secret"; "observability"; "platform-health-alert-webhook") | length == 1 and
+          .[0].stringData == {"url":"${alertmanager_webhook_url:=https://example.invalid/no-slack-configured}"}) and
+        (one("CronJob"; "observability"; "platform-health-alert") | length == 1 and
+          .[0].metadata.annotations["kustomize.toolkit.fluxcd.io/substitute"] == "disabled" and
+          (.[0].spec.jobTemplate.spec.template.spec as $pod |
+            $pod.serviceAccountName == "platform-health-alert" and
+            $pod.securityContext.runAsNonRoot == true and
+            ($pod.containers | length == 1) and
+            $pod.containers[0].securityContext.readOnlyRootFilesystem == true and
+            $pod.containers[0].securityContext.allowPrivilegeEscalation == false and
+            ($pod.containers[0].image | test("@sha256:[0-9a-f]{64}$")) and
+            ($pod.containers[0].env // [] | map(.valueFrom // empty) | length == 0) and
+            ([$pod.volumes[] | select(.secret != null) | .secret] == [{"secretName":"platform-health-alert-webhook","defaultMode":288}]) and
+            # The pod must stay outside the heartbeat carve-out, so the namespace-wide
+            # allow-coroot policy below selects it.
+            ((.[0].spec.jobTemplate.spec.template.metadata.labels // {}) | has("platform-heartbeat") | not))) and
+        # allow-coroot is the only policy that lets this pod out of the namespace default-deny:
+        # it must select every pod but the heartbeat and allow the API server, Slack on 443 and DNS.
+        (one("CiliumNetworkPolicy"; "observability"; "allow-coroot") | length == 1 and
+          .[0].spec.endpointSelector == {"matchExpressions":[{"key":"platform-heartbeat","operator":"NotIn","values":["true"]}]} and
+          (.[0].spec.egress | any(.toEntities == ["kube-apiserver"] and (has("toPorts") | not))) and
+          (.[0].spec.egress | any((.toFQDNs // [] | any(.matchName == "hooks.slack.com")) and
+            .toPorts == [{"ports":[{"port":"443","protocol":"TCP"}]}])) and
+          (.[0].spec.egress | any(.toEndpoints == [{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s-app":"kube-dns"}}] and
+            (.toPorts[0].ports | map(.protocol) | sort) == ["TCP","UDP"] and
+            .toPorts[0].rules.dns == [{"matchPattern":"*"}])))
+      '
+  )"
+  if [[ "${contract}" != "true" ]]; then
+    echo "production controllers must render the read-only platform-health-alert check wired to the existing Slack webhook" >&2
+    return 1
+  fi
+}
+
 # Validates that only the observability namespace's generated policies defer
 # the dedicated heartbeat label to its narrower workload policy.
 assert_heartbeat_policy_exclusion() {
@@ -905,6 +958,12 @@ assert_resource_count "${docker_controllers}" Alert flux-system platform-reconci
 assert_resource_count "${docker_controllers}" Alert flux-system platform-dependency-wait 0
 assert_resource_count "${docker_controllers}" Secret flux-system slack-webhook 0
 assert_flux_notification_contract "${hetzner_controllers}"
+assert_platform_health_alert_contract "${hetzner_controllers}"
+for health_alert_kind in ServiceAccount CronJob; do
+  assert_resource_count "${docker_controllers}" "${health_alert_kind}" observability platform-health-alert 0
+done
+assert_resource_count "${docker_controllers}" Secret observability platform-health-alert-webhook 0
+assert_resource_count "${docker_controllers}" ClusterRole "" platform-health-alert 0
 
 assert_heartbeat_staged_after_policy_exclusion "${docker_controllers}" "${docker_apps}"
 assert_heartbeat_staged_after_policy_exclusion "${hetzner_controllers}" "${hetzner_apps}"
@@ -1144,7 +1203,8 @@ for documented_boundary in \
   "narrow info-severity path for dependency waits" \
   "scripts/validate-alert-coverage.sh" \
   "adds that namespace to the alert" \
-  "are not alerted today" \
+  "a \`platform-health-alert\` CronJob reports failed or stale backups" \
+  "Cluster Autoscaler failures are left to Coroot." \
   "https://observability.<your-domain>" \
   "Dex-backed oauth2-proxy" \
   "no direct Gateway route to the Coroot service" \
@@ -1179,8 +1239,10 @@ for documented_heartbeat_boundary in \
   "Why HelmRelease is watched directly" \
   "scripts/validate-alert-coverage.sh" \
   "Local / Docker renders no Slack" \
-  "Not alerted today" \
-  "certificate expiry"; do
+  "Backup, database and certificate check" \
+  "Cluster Autoscaler failures are left to Coroot." \
+  "scripts/tests/test-platform-health-alert.sh" \
+  "A certificate expires within 14 days"; do
   if ! grep -Fq "${documented_heartbeat_boundary}" "${alerting_guide}"; then
     echo "alerting guide does not retain alerting boundary: ${documented_heartbeat_boundary}" >&2
     exit 1
