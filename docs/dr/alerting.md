@@ -139,7 +139,9 @@ it finds:
   cert-manager has not renewed it.
 
 It posts to the same webhook as Coroot and Flux, so there is nothing new to
-provision. A problem is reported again on every run until it is fixed. Its
+provision. Its network path is the `observability` namespace's `allow-coroot`
+policy, which already lets every pod but the heartbeat reach the API server, DNS
+and, in production, `hooks.slack.com:443`; the validator fails if that changes. A problem is reported again on every run until it is fixed. Its
 identity can only list Velero schedules and backups, CloudNativePG clusters
 and backups, and certificates. A kind whose API is not installed is skipped;
 any other read or delivery failure fails the Job, so check

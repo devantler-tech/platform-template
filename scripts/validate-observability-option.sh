@@ -561,7 +561,20 @@ assert_platform_health_alert_contract() {
             $pod.containers[0].securityContext.allowPrivilegeEscalation == false and
             ($pod.containers[0].image | test("@sha256:[0-9a-f]{64}$")) and
             ($pod.containers[0].env // [] | map(.valueFrom // empty) | length == 0) and
-            ([$pod.volumes[] | select(.secret != null) | .secret] == [{"secretName":"platform-health-alert-webhook","defaultMode":288}])))
+            ([$pod.volumes[] | select(.secret != null) | .secret] == [{"secretName":"platform-health-alert-webhook","defaultMode":288}]) and
+            # The pod must stay outside the heartbeat carve-out, so the namespace-wide
+            # allow-coroot policy below selects it.
+            ((.[0].spec.jobTemplate.spec.template.metadata.labels // {}) | has("platform-heartbeat") | not))) and
+        # allow-coroot is the only policy that lets this pod out of the namespace default-deny:
+        # it must select every pod but the heartbeat and allow the API server, Slack on 443 and DNS.
+        (one("CiliumNetworkPolicy"; "observability"; "allow-coroot") | length == 1 and
+          .[0].spec.endpointSelector == {"matchExpressions":[{"key":"platform-heartbeat","operator":"NotIn","values":["true"]}]} and
+          (.[0].spec.egress | any(.toEntities == ["kube-apiserver"] and (has("toPorts") | not))) and
+          (.[0].spec.egress | any((.toFQDNs // [] | any(.matchName == "hooks.slack.com")) and
+            .toPorts == [{"ports":[{"port":"443","protocol":"TCP"}]}])) and
+          (.[0].spec.egress | any(.toEndpoints == [{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s-app":"kube-dns"}}] and
+            (.toPorts[0].ports | map(.protocol) | sort) == ["TCP","UDP"] and
+            .toPorts[0].rules.dns == [{"matchPattern":"*"}])))
       '
   )"
   if [[ "${contract}" != "true" ]]; then
