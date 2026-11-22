@@ -23,14 +23,21 @@ There are two halves to onboarding, in two repos:
 
 ## 1. Create the tenant repository
 
-Create the repo from the template with **“Use this template”** (GitHub UI), or:
+Creating a repository from the template is not enabled yet: `application-template`
+becomes a GitHub template with
+[application-template#211](https://github.com/devantler-tech/application-template/issues/211),
+and both ways below work from then on.
+
+Create the repo from the template with **“Use this template”** (GitHub UI) and clone
+it, or create and clone it in one step:
 
 ```sh
 gh repo create <your-org>/<tenant> \
-  --template devantler-tech/application-template --private
+  --template devantler-tech/application-template --private --clone
+cd <tenant>
 ```
 
-Then lay down its stack and the tenancy in the new repository with
+Then, in that checkout, lay down its stack and the tenancy with
 `scripts/scaffold.sh <go|dotnet|svelte|none> --tenancy <tenant>`.
 
 The template gives you the shared plumbing it keeps in sync (`cd.yaml`,
@@ -78,8 +85,10 @@ Tenant app secrets come from **OpenBao** via **External Secrets** — not SOPS.
   RoleBinding already aggregates the `external-secrets-tenant-edit` ClusterRole, so it
   may manage its own `SecretStore`/`ExternalSecret`.
 - The release and template-sync workflows mint a **GitHub App token** from an
-  org-level `APP_ID` variable and `APP_PRIVATE_KEY` secret. Configure those once at
-  the org (or per-repo) level so the tenant repos can use them.
+  org-level `APP_CLIENT_ID` variable (the App's Client ID) and `APP_PRIVATE_KEY`
+  secret. Configure those once at the org (or per-repo) level so the tenant repos can
+  use them. The App needs **Contents** and **Pull requests** write access, and
+  **Workflows** write so template-sync can update files under `.github/workflows/`.
 
 ## 4. How publishing & trust fit together
 
