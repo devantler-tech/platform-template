@@ -53,7 +53,7 @@ concurrency:
 
 env:
   # renovate: datasource=github-releases depName=devantler-tech/ksail extractVersion=^v(?<version>.+)$
-  KSAIL_VERSION: "7.216.30"
+  KSAIL_VERSION: "7.216.34"
 
 jobs:
   bootstrap:
