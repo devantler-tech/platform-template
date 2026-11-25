@@ -46,9 +46,15 @@ jobs:
     # more than the caller, and the top-level `permissions: {}` grants none, so
     # without this the run fails at startup (reusable-workflow permission check)
     # — both here and in every instance where the job actually runs.
+    # id-token: write lets the shared workflow prove its identity to the GitHub
+    # token broker (devantler-tech/monorepo ADR 0020) instead of minting from the
+    # App key. Granting it is harmless until the workflow asks for it, and it must
+    # be here first: a reusable job that asks for more than its caller grants
+    # fails at startup.
     permissions:
       contents: write
       pull-requests: write
+      id-token: write
     uses: devantler-tech/.github/.github/workflows/template-sync.yaml@cc156a3693019fdbe9817c46f1a91cd50a124695 # v21.7.3
     with:
       source-repo-path: devantler-tech/platform-template
