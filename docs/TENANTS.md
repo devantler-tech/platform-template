@@ -84,11 +84,15 @@ Tenant app secrets come from **OpenBao** via **External Secrets** — not SOPS.
   Kubernetes auth role binding the tenant’s ServiceAccount to it. The tenant’s `edit`
   RoleBinding already aggregates the `external-secrets-tenant-edit` ClusterRole, so it
   may manage its own `SecretStore`/`ExternalSecret`.
-- The release and template-sync workflows mint a **GitHub App token** from an
-  org-level `APP_CLIENT_ID` variable (the App's Client ID) and `APP_PRIVATE_KEY`
-  secret. Configure those once at the org (or per-repo) level so the tenant repos can
-  use them. The App needs **Contents** and **Pull requests** write access, and
-  **Workflows** write so template-sync can update files under `.github/workflows/`.
+- The release and template-sync workflows get a **GitHub App token** from the
+  devantler-tech GitHub token broker, so a tenant repository sets no App variable or
+  secret for them; each calling job grants `id-token: write` instead. The broker serves
+  only the `main` branch of repositories in the devantler-tech organization, so these
+  workflows work only in devantler-tech tenant repositories, and manual runs start from
+  `main`. A tenant repository elsewhere replaces them with workflows that use its own
+  credentials, and lists each file it changes in its `.templatesyncignore`; for template
+  sync, that means setting `use-app-token: false`. See
+  [`BOOTSTRAP.md`, section 2](BOOTSTRAP.md#2-release-the-to-do-scan-and-template-sync-use-the-token-broker).
 
 ## 4. How publishing & trust fit together
 

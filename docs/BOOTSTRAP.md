@@ -81,25 +81,45 @@ preferred because its token is short-lived and scoped to the install.
 > App install,”** not literally only secrets. Everything else the workflow needs it
 > generates itself.
 
-### 2. Let the same App run the weekly template sync
+### 2. Release, the to-do scan and template sync use the token broker
 
-[`template-sync.yaml`](../.github/workflows/template-sync.yaml) keeps your instance
-current with this template: every Monday at 06:00 UTC it opens a pull request with the
-template’s changes, including security baseline updates. It signs in as a GitHub App,
-because the default `GITHUB_TOKEN` cannot change workflow files. It reads the same
-`APP_PRIVATE_KEY` secret as bootstrap, so if you bootstrapped with an App it must be
-that App. Give it:
+Three workflows need a GitHub App token, because the default `GITHUB_TOKEN` cannot do
+their job:
 
-- **Pull requests: write** and **Workflows: write**, on top of the bootstrap’s
-  **Contents: write**. Without **Workflows: write** the App token cannot be created.
-- **Variable** `APP_CLIENT_ID` = the App’s **Client ID**, from its settings page.
+- [`release.yaml`](../.github/workflows/release.yaml) creates each release and its `v*`
+  tag. A tag pushed with `GITHUB_TOKEN` would not start `cd.yaml`.
+- [`todos.yaml`](../.github/workflows/todos.yaml) files an issue for each to-do comment
+  and adds it to the devantler-tech project board.
+- [`template-sync.yaml`](../.github/workflows/template-sync.yaml) keeps your instance
+  current with this template: every Monday at 06:00 UTC it opens a pull request with
+  the template’s changes, including security baseline updates. `GITHUB_TOKEN` cannot
+  change workflow files.
 
-If you bootstrapped with a fine-grained PAT instead, the sync still needs a GitHub App.
-Create and install one as in step 1, with **Contents**, **Pull requests** and
-**Workflows: write**, then set its `APP_CLIENT_ID` variable and `APP_PRIVATE_KEY` secret.
+All three get that token from the devantler-tech GitHub token broker, so they need no
+App, variable or secret of their own, and they do not use the bootstrap App. Each job
+proves which repository and branch it runs in (`id-token: write`), and the broker
+returns a short-lived token.
 
-If the variable or the secret is missing, the sync fails with an error naming which one.
-To check the setup, run *Actions → 🔄 Template Sync → Run workflow*.
+The broker serves only the `main` branch of repositories in the devantler-tech
+organization. A run on another branch could run workflow code nobody has reviewed, so
+it gets no token: start manual runs from `main`.
+
+**These three workflows therefore work only in devantler-tech repositories.** The broker
+gives tokens only to devantler-tech’s own systems, so in an instance outside
+devantler-tech each of them fails at its token step. Such an instance replaces them with
+workflows that use its own credentials, and lists each file it changes in its
+`.templatesyncignore` so the next sync does not bring the template’s copy back:
+
+- **Release:** a release workflow that signs in with the instance’s own GitHub App or
+  token. The shared release workflow has no setting for this.
+- **To-do scan:** set `optional-project-auth: true` and `project: ""` in `todos.yaml`.
+  The scanner then files its issues with `GITHUB_TOKEN` and adds them to no project
+  board.
+- **Template sync:** set `use-app-token: false` in `template-sync.yaml` to sync with
+  `GITHUB_TOKEN`. A template change under `.github/workflows/` then cannot be pushed,
+  and the sync pull request does not trigger your CI.
+
+To check the setup, run *Actions → 🔄 Template Sync → Run workflow* on `main`.
 
 ---
 
@@ -120,7 +140,6 @@ Set these in your **new instance repository** under *Settings → Secrets and va
 | `SSO_GITHUB_APP_CLIENT_ID` | **Client ID** of the *cluster SSO* GitHub App (Dex’s GitHub connector) | The SSO App’s settings page. |
 | `R2_BUCKET` | Backup bucket name (optional; defaults to `platform-backups`) | Cloudflare R2 → your bucket. |
 | `APP_ID` | App ID of the **bootstrap** GitHub App (see prerequisites) | The bootstrap App’s settings page. |
-| `APP_CLIENT_ID` | Client ID of the **bootstrap** GitHub App, used by the [weekly template sync](#2-let-the-same-app-run-the-weekly-template-sync) | The bootstrap App’s settings page. |
 
 ### GitHub Secrets
 
@@ -134,7 +153,7 @@ Set these in your **new instance repository** under *Settings → Secrets and va
 | `ALERTMANAGER_WEBHOOK_URL` | Slack incoming webhook for Coroot incident and Flux failure notifications | Slack’s incoming-webhook setup for your alerts channel. |
 | `CLUSTER_HEARTBEAT_URL` | Ping URL for the cluster heartbeat, the one off-cluster dead-man signal (required for a `prod` bootstrap) | A canonical `https://hc-ping.com/<lowercase-uuid>` check ping URL from healthchecks.io. |
 | `SSO_GITHUB_APP_CLIENT_SECRET` | **Client secret** of the *cluster SSO* GitHub App (Dex’s GitHub connector) | The SSO App’s settings page (generate a client secret). |
-| `APP_PRIVATE_KEY` | Private key (`.pem`) of the **bootstrap** GitHub App, also used by the weekly template sync | Generated when you created the bootstrap App. |
+| `APP_PRIVATE_KEY` | Private key (`.pem`) of the **bootstrap** GitHub App | Generated when you created the bootstrap App. |
 
 ### Auto-generated by the bootstrap — you never set these
 
@@ -227,8 +246,8 @@ pipelines, all of which run the **idempotent** `ksail cluster update` (not
 - **`cd.yaml`** — on a `v*` tag: deploys the tagged release to prod with
   `ksail cluster update`.
 - **`template-sync.yaml`** — every Monday: opens a pull request with the template’s
-  changes, signed in as the bootstrap App
-  ([setup](#2-let-the-same-app-run-the-weekly-template-sync)).
+  changes, with a token from the devantler-tech GitHub token broker
+  ([details](#2-release-the-to-do-scan-and-template-sync-use-the-token-broker)).
 
 Day-to-day, you simply open PRs and merge them, or cut a `v*` tag. The cluster
 credentials persisted during bootstrap are what let these run unattended. If you ever
@@ -333,17 +352,15 @@ on the instance repo**.
 
 ### The weekly template sync fails
 
-The run’s first job names any missing `APP_CLIENT_ID` variable or `APP_PRIVATE_KEY`
-secret. If both are set and the **Generate GitHub App token** step fails, one of these
-is wrong:
+If the **Get a sync token from the token broker** step fails, one of these is the cause:
 
-- `APP_CLIENT_ID` is not the App’s Client ID, or `APP_PRIVATE_KEY` is malformed or
-  belongs to a different App.
-- The App is missing **Contents: write**, **Workflows: write** or
-  **Pull requests: write**.
-- The App is not installed on this repo.
+- The repository is outside the devantler-tech organization, which the broker does not
+  serve.
+- The run started on a branch other than `main`, which the broker does not serve.
+- The `template-sync` job no longer grants `id-token: write`.
 
-See [Let the same App run the weekly template sync](#2-let-the-same-app-run-the-weekly-template-sync).
+The release and to-do scan workflows fail at their token steps for the same reasons.
+See [Release, the to-do scan and template sync use the token broker](#2-release-the-to-do-scan-and-template-sync-use-the-token-broker).
 
 ### It refuses to run in the template repo
 
