@@ -22,4 +22,4 @@ jobs:
       disable-issue-side-effects: true
     permissions:
       contents: write # create releases and tags
-      id-token: write # provenance signing
+      id-token: write # lets the shared release workflow prove its identity to the GitHub token broker (ADR 0020)

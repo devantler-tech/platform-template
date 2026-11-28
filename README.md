@@ -36,9 +36,10 @@ Hetzner cluster with live DNS, unattended:
 2. **Install a GitHub App** on the new repository with the
    [four permissions it needs](docs/BOOTSTRAP.md#1-install-the-bootstrap-github-app), and add its
    `APP_ID` as a Variable and its `APP_PRIVATE_KEY` as a Secret. The bootstrap writes the cluster's
-   credentials back as secrets, which the default `GITHUB_TOKEN` is not allowed to do. The
-   [weekly template sync](docs/BOOTSTRAP.md#2-template-sync-gets-its-token-from-the-token-broker)
-   needs no App of its own: it gets its token from the devantler-tech GitHub token broker.
+   credentials back as secrets, which the default `GITHUB_TOKEN` is not allowed to do.
+   [Release, the to-do scan and the weekly template sync](docs/BOOTSTRAP.md#2-release-the-to-do-scan-and-template-sync-use-the-token-broker)
+   need no App of their own: they get their tokens from the devantler-tech GitHub token
+   broker, so they work only in devantler-tech repositories.
 3. **Add your Variables and Secrets** — Variables such as `DOMAIN`, `CLOUDFLARE_ZONE`,
    `ADMIN_EMAIL` and `HETZNER_LOCATION`, and Secrets such as `HCLOUD_TOKEN` and
    `CLOUDFLARE_API_TOKEN`; [the full list](docs/BOOTSTRAP.md#configuration) says what each one is

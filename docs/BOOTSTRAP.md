@@ -81,26 +81,45 @@ preferred because its token is short-lived and scoped to the install.
 > App install,”** not literally only secrets. Everything else the workflow needs it
 > generates itself.
 
-### 2. Template sync gets its token from the token broker
+### 2. Release, the to-do scan and template sync use the token broker
 
-[`template-sync.yaml`](../.github/workflows/template-sync.yaml) keeps your instance
-current with this template: every Monday at 06:00 UTC it opens a pull request with the
-template’s changes, including security baseline updates. It pushes with a GitHub App
-token, because the default `GITHUB_TOKEN` cannot change workflow files.
+Three workflows need a GitHub App token, because the default `GITHUB_TOKEN` cannot do
+their job:
 
-That token comes from the devantler-tech GitHub token broker, so the sync needs no App,
-variable or secret of its own, and it does not use the bootstrap App. The job proves
-which repository it runs in (`id-token: write`), and the broker returns a short-lived
-token. The broker serves only repositories in the devantler-tech organization.
+- [`release.yaml`](../.github/workflows/release.yaml) creates each release and its `v*`
+  tag. A tag pushed with `GITHUB_TOKEN` would not start `cd.yaml`.
+- [`todos.yaml`](../.github/workflows/todos.yaml) files an issue for each to-do comment
+  and adds it to the devantler-tech project board.
+- [`template-sync.yaml`](../.github/workflows/template-sync.yaml) keeps your instance
+  current with this template: every Monday at 06:00 UTC it opens a pull request with
+  the template’s changes, including security baseline updates. `GITHUB_TOKEN` cannot
+  change workflow files.
 
-**An instance outside devantler-tech** gets no token from the broker, so its sync fails at
-the token step. Set `use-app-token: false` in its `template-sync.yaml` to sync with
-`GITHUB_TOKEN` instead, or give the sync its own way to get a token. With `GITHUB_TOKEN`,
-a template change under `.github/workflows/` cannot be pushed, and the sync pull request
-does not trigger your CI. List `.github/workflows/template-sync.yaml` in your
-`.templatesyncignore` so the next sync does not undo the change.
+All three get that token from the devantler-tech GitHub token broker, so they need no
+App, variable or secret of their own, and they do not use the bootstrap App. Each job
+proves which repository and branch it runs in (`id-token: write`), and the broker
+returns a short-lived token.
 
-To check the setup, run *Actions → 🔄 Template Sync → Run workflow*.
+The broker serves only the `main` branch of repositories in the devantler-tech
+organization. A run on another branch could run workflow code nobody has reviewed, so
+it gets no token: start manual runs from `main`.
+
+**These three workflows therefore work only in devantler-tech repositories.** The broker
+gives tokens only to devantler-tech’s own systems, so in an instance outside
+devantler-tech each of them fails at its token step. Such an instance replaces them with
+workflows that use its own credentials, and lists each file it changes in its
+`.templatesyncignore` so the next sync does not bring the template’s copy back:
+
+- **Release:** a release workflow that signs in with the instance’s own GitHub App or
+  token. The shared release workflow has no setting for this.
+- **To-do scan:** set `optional-project-auth: true` and `project: ""` in `todos.yaml`.
+  The scanner then files its issues with `GITHUB_TOKEN` and adds them to no project
+  board.
+- **Template sync:** set `use-app-token: false` in `template-sync.yaml` to sync with
+  `GITHUB_TOKEN`. A template change under `.github/workflows/` then cannot be pushed,
+  and the sync pull request does not trigger your CI.
+
+To check the setup, run *Actions → 🔄 Template Sync → Run workflow* on `main`.
 
 ---
 
@@ -228,7 +247,7 @@ pipelines, all of which run the **idempotent** `ksail cluster update` (not
   `ksail cluster update`.
 - **`template-sync.yaml`** — every Monday: opens a pull request with the template’s
   changes, with a token from the devantler-tech GitHub token broker
-  ([details](#2-template-sync-gets-its-token-from-the-token-broker)).
+  ([details](#2-release-the-to-do-scan-and-template-sync-use-the-token-broker)).
 
 Day-to-day, you simply open PRs and merge them, or cut a `v*` tag. The cluster
 credentials persisted during bootstrap are what let these run unattended. If you ever
@@ -337,9 +356,11 @@ If the **Get a sync token from the token broker** step fails, one of these is th
 
 - The repository is outside the devantler-tech organization, which the broker does not
   serve.
+- The run started on a branch other than `main`, which the broker does not serve.
 - The `template-sync` job no longer grants `id-token: write`.
 
-See [Template sync gets its token from the token broker](#2-template-sync-gets-its-token-from-the-token-broker).
+The release and to-do scan workflows fail at their token steps for the same reasons.
+See [Release, the to-do scan and template sync use the token broker](#2-release-the-to-do-scan-and-template-sync-use-the-token-broker).
 
 ### It refuses to run in the template repo
 

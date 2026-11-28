@@ -87,7 +87,12 @@ Tenant app secrets come from **OpenBao** via **External Secrets** — not SOPS.
 - The release and template-sync workflows get a **GitHub App token** from the
   devantler-tech GitHub token broker, so a tenant repository sets no App variable or
   secret for them; each calling job grants `id-token: write` instead. The broker serves
-  only repositories in the devantler-tech organization.
+  only the `main` branch of repositories in the devantler-tech organization, so these
+  workflows work only in devantler-tech tenant repositories, and manual runs start from
+  `main`. A tenant repository elsewhere replaces them with workflows that use its own
+  credentials, and lists each file it changes in its `.templatesyncignore`; for template
+  sync, that means setting `use-app-token: false`. See
+  [`BOOTSTRAP.md`, section 2](BOOTSTRAP.md#2-release-the-to-do-scan-and-template-sync-use-the-token-broker).
 
 ## 4. How publishing & trust fit together
 
